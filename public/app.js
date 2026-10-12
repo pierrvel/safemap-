@@ -156,9 +156,12 @@ async function loadServerConfig() {
   try {
     const res = await fetch('/api/config');
     if (res.ok) {
-      const config = await res.json();
-      if (config.googleMapsApiKey && !state.googleApiKey) {
-        state.googleApiKey = config.googleMapsApiKey;
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const config = await res.json();
+        if (config.googleMapsApiKey && !state.googleApiKey) {
+          state.googleApiKey = config.googleMapsApiKey;
+        }
       }
     }
   } catch (e) {
@@ -273,6 +276,28 @@ function toggleBottomSheet(forceState) {
   }
 }
 
+function renderMapFallbackNotice(errorMessage) {
+  if (!elements.mainMapContainer) return;
+  elements.mainMapContainer.innerHTML = `
+    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; text-align: center; padding: 24px; color: #475569; background: #f8fafc; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+      <div style="width: 64px; height: 64px; border-radius: 50%; background: #eff6ff; display: flex; align-items: center; justify-content: center; font-size: 32px; margin-bottom: 16px; box-shadow: 0 4px 12px rgba(37,99,235,0.12);">🗺️</div>
+      <h3 style="font-size: 19px; font-weight: 700; color: #1e293b; margin: 0 0 8px 0;">Google Maps 활성화 대기 중</h3>
+      <p style="font-size: 14px; max-width: 380px; line-height: 1.6; color: #64748b; margin: 0 0 20px 0;">
+        Vercel 대시보드에서 <strong>GOOGLE_MAPS_API_KEY</strong> 환경변수를 등록하시거나, 아래 버튼을 눌러 API 키를 설정하시면 지도가 즉시 활성화됩니다.
+      </p>
+      <button id="btnOpenKeyModalDirect" style="padding: 11px 22px; background: #2563eb; color: #fff; border: none; border-radius: 12px; font-weight: 600; font-size: 14px; cursor: pointer; box-shadow: 0 4px 12px rgba(37,99,235,0.25); transition: background 0.2s;">
+        ⚙️ Google Maps API 키 설정하기
+      </button>
+    </div>
+  `;
+  const btn = document.getElementById('btnOpenKeyModalDirect');
+  if (btn && elements.settingsModal) {
+    btn.addEventListener('click', () => {
+      openModal(elements.settingsModal);
+    });
+  }
+}
+
 // ==========================================================
 // 3. 앱 구동 및 GPS 위치 수신
 // ==========================================================
@@ -292,7 +317,8 @@ async function initApp() {
     initMapInstance();
   } catch (err) {
     console.error('Google Maps SDK error:', err);
-    showStatus('구글맵 로드 오류: API 키 설정을 확인해 주세요.', 4000);
+    showStatus('구글맵 로드 대기: API 키 설정을 확인해 주세요.', 6000);
+    renderMapFallbackNotice(err.message);
   }
 
   if (navigator.geolocation) {
@@ -490,7 +516,12 @@ async function fetchFacilities() {
     let data = null;
     try {
       const res = await fetch(`/api/facilities?lat=${state.userLat}&lon=${state.userLon}&category=${state.currentCategory}&verifiedOnly=${state.verifiedOnly}`, { signal: AbortSignal.timeout(2000) });
-      if (res.ok) data = await res.json();
+      if (res.ok) {
+        const ct = res.headers.get('content-type') || '';
+        if (ct.includes('application/json')) {
+          data = await res.json();
+        }
+      }
     } catch (e) {
       data = null;
     }
@@ -509,7 +540,9 @@ async function fetchFacilities() {
     updateNearestCard(state.nearestFacility);
     renderFacilityList(state.facilities);
 
-    hideStatus();
+    if (state.map) {
+      hideStatus();
+    }
     // 실제 도로망 보행 거리 비동기 계산 및 순위 보정
     updateFacilitiesRealWalkingDistances();
   } catch (err) {

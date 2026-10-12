@@ -10,19 +10,20 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
-app.use(express.static(__dirname));
 
-// 환경변수 기반 API 키 및 설정 (하드코딩 제거)
-const DATA_GO_KR_KEY = process.env.DATA_GO_KR_KEY || '';
-const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY || '';
+// 환경변수 기반 API 키 및 설정
+const getGoogleMapsApiKey = () => process.env.GOOGLE_MAPS_API_KEY || '';
+const getDataGoKrKey = () => process.env.DATA_GO_KR_KEY || '';
 
 // 클라이언트 설정 제공 API (환경변수 안전 전달)
 app.get('/api/config', (req, res) => {
+  const gKey = getGoogleMapsApiKey();
+  const dKey = getDataGoKrKey();
   res.json({
     success: true,
-    googleMapsApiKey: GOOGLE_MAPS_API_KEY,
-    hasGoogleKey: !!GOOGLE_MAPS_API_KEY,
-    hasDataGoKrKey: !!DATA_GO_KR_KEY,
+    googleMapsApiKey: gKey,
+    hasGoogleKey: !!gKey,
+    hasDataGoKrKey: !!dKey,
   });
 });
 
@@ -105,7 +106,8 @@ function isCurrentlyAvailable(item) {
 
 // 실시간 AED 공공데이터 조회
 async function fetchAEDData(lat, lon) {
-  const url = `https://apis.data.go.kr/B552657/AEDInfoInqireService/getAedLcinfoInqire?serviceKey=${DATA_GO_KR_KEY}&WGS84_LON=${lon}&WGS84_LAT=${lat}&numOfRows=50&_type=json`;
+  const serviceKey = getDataGoKrKey();
+  const url = `https://apis.data.go.kr/B552657/AEDInfoInqireService/getAedLcinfoInqire?serviceKey=${serviceKey}&WGS84_LON=${lon}&WGS84_LAT=${lat}&numOfRows=50&_type=json`;
   
   const response = await fetch(url, {
     headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
