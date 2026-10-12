@@ -17,7 +17,7 @@ const getGoogleMapsApiKey = () => process.env.GOOGLE_MAPS_API_KEY || '';
 const getDataGoKrKey = () => process.env.DATA_GO_KR_KEY || '';
 
 // 클라이언트 설정 제공 API (환경변수 안전 전달)
-app.get('/api/config', (req, res) => {
+app.get(['/api/config', '/config'], (req, res) => {
   const kakaoKey = getKakaoMapApiKey();
   const googleKey = getGoogleMapsApiKey();
   const dataKey = getDataGoKrKey();
@@ -253,7 +253,7 @@ function getFireFacilities(centerLat, centerLon) {
 }
 
 // 메인 시설 목록 API (전처리 및 최단거리 분석 적용)
-app.get('/api/facilities', async (req, res) => {
+app.get(['/api/facilities', '/facilities'], async (req, res) => {
   try {
     const lat = parseFloat(req.query.lat) || 37.5665;
     const lon = parseFloat(req.query.lon) || 126.9780;
@@ -442,7 +442,7 @@ app.get('/api/facilities', async (req, res) => {
 });
 
 // 사용자 제보 등록 API (연구계획서: 실제로 없는 경우가 있을 수 있으므로 제보 시스템 구축)
-app.post('/api/reports', (req, res) => {
+app.post(['/api/reports', '/reports'], (req, res) => {
   const { facilityId, facilityName, reportType, details, reporterName } = req.body;
 
   if (!facilityId || !reportType) {
@@ -470,7 +470,7 @@ app.post('/api/reports', (req, res) => {
 });
 
 // 제보 목록 조회 API
-app.get('/api/reports', (req, res) => {
+app.get(['/api/reports', '/reports'], (req, res) => {
   res.json({
     success: true,
     total: userReports.length,
@@ -483,7 +483,7 @@ app.get('/api/reports', (req, res) => {
 // ==========================================================
 
 // 다중 시설 도보 실거리 계산 API (Table Matrix)
-app.post('/api/routes/matrix', async (req, res) => {
+app.post(['/api/routes/matrix', '/routes/matrix'], async (req, res) => {
   try {
     const { origin, destinations } = req.body;
     if (!origin || !destinations || !Array.isArray(destinations) || destinations.length === 0) {
@@ -543,7 +543,7 @@ app.post('/api/routes/matrix', async (req, res) => {
 });
 
 // 단일 목적지 상세 도보 경로 및 턴바이턴 길안내 API
-app.post('/api/routes/directions', async (req, res) => {
+app.post(['/api/routes/directions', '/routes/directions'], async (req, res) => {
   try {
     const { origin, destination } = req.body;
     if (!origin || !destination) {
