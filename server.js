@@ -12,18 +12,22 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
 // 환경변수 기반 API 키 및 설정
+const getKakaoMapApiKey = () => process.env.KAKAO_MAP_API_KEY || '';
 const getGoogleMapsApiKey = () => process.env.GOOGLE_MAPS_API_KEY || '';
 const getDataGoKrKey = () => process.env.DATA_GO_KR_KEY || '';
 
 // 클라이언트 설정 제공 API (환경변수 안전 전달)
 app.get('/api/config', (req, res) => {
-  const gKey = getGoogleMapsApiKey();
-  const dKey = getDataGoKrKey();
+  const kakaoKey = getKakaoMapApiKey();
+  const googleKey = getGoogleMapsApiKey();
+  const dataKey = getDataGoKrKey();
   res.json({
     success: true,
-    googleMapsApiKey: gKey,
-    hasGoogleKey: !!gKey,
-    hasDataGoKrKey: !!dKey,
+    kakaoMapApiKey: kakaoKey,
+    hasKakaoKey: !!kakaoKey,
+    googleMapsApiKey: googleKey,
+    hasGoogleKey: !!googleKey,
+    hasDataGoKrKey: !!dataKey,
   });
 });
 

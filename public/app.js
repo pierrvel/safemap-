@@ -1,11 +1,11 @@
 /**
  * 골든타임 세이프맵 (GoldenTime SafeMap)
- * 미니멀 클린 UX/UI & Google Maps Platform 정식 SDK 연동
+ * 미니멀 클린 UX/UI & 카카오맵 (Kakao Maps) 정식 SDK 연동
  */
 
 // 환경설정 및 API 키 동적 로드 (Vercel 환경변수 /api/config 연동)
 const urlParams = new URLSearchParams(window.location.search);
-const keyFromUrl = urlParams.get('key') || urlParams.get('gkey');
+const keyFromUrl = urlParams.get('key') || urlParams.get('kkey');
 
 // 전역 상태
 const state = {
@@ -17,7 +17,7 @@ const state = {
   nearestFacility: null,
   stats: null,
   
-  googleApiKey: keyFromUrl || '',
+  kakaoApiKey: keyFromUrl || '',
   map: null,
   isSatelliteMode: false,
   
@@ -142,7 +142,7 @@ const elements = {
 };
 
 // ==========================================================
-// 1. 서버 환경설정 및 Google Maps Platform 정식 SDK 로드
+// 1. 서버 환경설정 및 카카오맵 (Kakao Maps) 정식 SDK 로드
 // ==========================================================
 async function loadServerConfig() {
   try {
@@ -151,8 +151,8 @@ async function loadServerConfig() {
       const contentType = res.headers.get('content-type') || '';
       if (contentType.includes('application/json')) {
         const config = await res.json();
-        if (config.googleMapsApiKey && !state.googleApiKey) {
-          state.googleApiKey = config.googleMapsApiKey;
+        if (config.kakaoMapApiKey && !state.kakaoApiKey) {
+          state.kakaoApiKey = config.kakaoMapApiKey;
         }
       }
     }
@@ -162,74 +162,63 @@ async function loadServerConfig() {
 
   // URL 디버그 파라미터가 명시된 경우 보조 지원 (?key=...)
   const urlParams = new URLSearchParams(window.location.search);
-  const keyFromUrl = urlParams.get('key') || urlParams.get('gkey');
+  const keyFromUrl = urlParams.get('key') || urlParams.get('kkey');
   if (keyFromUrl) {
-    state.googleApiKey = keyFromUrl;
+    state.kakaoApiKey = keyFromUrl;
   }
 }
 
-function loadGoogleMapsSDK() {
+function loadKakaoMapsSDK() {
   return new Promise((resolve, reject) => {
-    if (window.google && window.google.maps) {
-      resolve();
+    if (window.kakao && window.kakao.maps) {
+      kakao.maps.load(() => resolve());
       return;
     }
 
-    if (!state.googleApiKey) {
-      reject(new Error('Google Maps API 키가 로드되지 않았습니다. 서버 환경변수(GOOGLE_MAPS_API_KEY)를 확인해 주세요.'));
+    if (!state.kakaoApiKey) {
+      reject(new Error('카카오맵 API 키가 로드되지 않았습니다. 서버 환경변수(KAKAO_MAP_API_KEY)를 확인해 주세요.'));
       return;
     }
 
     const script = document.createElement('script');
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${state.googleApiKey}&libraries=geometry&language=ko&callback=onGoogleMapsReady`;
+    script.src = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${state.kakaoApiKey}&libraries=services,clusterer&autoload=false`;
     script.async = true;
     script.defer = true;
 
-    window.onGoogleMapsReady = () => {
-      resolve();
+    script.onload = () => {
+      kakao.maps.load(() => {
+        resolve();
+      });
     };
 
     script.onerror = (e) => {
-      reject(new Error('Google Maps script load error'));
+      reject(new Error('카카오맵 SDK 스크립트 로드 실패. 카카오 개발자 콘솔의 Web 플랫폼 도메인 등록을 확인해 주세요.'));
     };
 
     document.head.appendChild(script);
 
     setTimeout(() => {
-      if (!window.google || !window.google.maps) {
-        reject(new Error('Google Maps SDK loading timeout'));
+      if (!window.kakao || !window.kakao.maps) {
+        reject(new Error('Kakao Maps SDK loading timeout'));
       }
-    }, 7000);
+    }, 8000);
   });
 }
 
 function initMapInstance() {
-  elements.sdkStatusBadge.textContent = 'Google Maps';
-
-  // 클린 미니멀 맵 스타일 (상업 POI 노이즈 제거하여 안전시설이 돋보이도록 구성)
-  const minimalCleanStyle = [
-    { featureType: 'poi.business', stylers: [{ visibility: 'off' }] },
-    { featureType: 'poi.medical', stylers: [{ visibility: 'on' }] },
-    { featureType: 'poi.government', stylers: [{ visibility: 'on' }] },
-    { featureType: 'road', elementType: 'geometry', stylers: [{ lightness: 15 }] },
-    { featureType: 'transit', elementType: 'labels.icon', stylers: [{ visibility: 'simplified' }] }
-  ];
+  if (elements.sdkStatusBadge) {
+    elements.sdkStatusBadge.textContent = '카카오맵';
+  }
 
   const mapOptions = {
-    center: { lat: state.userLat, lng: state.userLon },
-    zoom: 17,
-    mapTypeId: google.maps.MapTypeId.ROADMAP,
-    disableDefaultUI: true,
-    zoomControl: false, // 터치 제스처 중심
-    clickableIcons: false,
-    internalUsageAttributionIds: ['gmp_git_agentskills_v1'],
-    styles: minimalCleanStyle
+    center: new kakao.maps.LatLng(state.userLat, state.userLon),
+    level: 3 // 축척 레벨 3 (도보/시설 탐색 최적화 레벨)
   };
 
-  state.map = new google.maps.Map(elements.mainMapContainer, mapOptions);
+  state.map = new kakao.maps.Map(elements.mainMapContainer, mapOptions);
 
   // 지도 빈 곳 클릭 시 스파이더파이어 접기 및 인포윈도우 닫기
-  state.map.addListener('click', () => {
+  kakao.maps.event.addListener(state.map, 'click', () => {
     collapseSpider();
     if (state.currentInfoWindow) {
       state.currentInfoWindow.close();
@@ -242,7 +231,7 @@ function initMapInstance() {
 function toggleMapLayer() {
   if (!state.map) return;
   state.isSatelliteMode = !state.isSatelliteMode;
-  state.map.setMapTypeId(state.isSatelliteMode ? google.maps.MapTypeId.HYBRID : google.maps.MapTypeId.ROADMAP);
+  state.map.setMapTypeId(state.isSatelliteMode ? kakao.maps.MapTypeId.HYBRID : kakao.maps.MapTypeId.ROADMAP);
   elements.mapLayerIcon.textContent = state.isSatelliteMode ? '🗺️' : '🛰️';
 }
 
@@ -270,9 +259,9 @@ function renderMapFallbackNotice(errorMessage) {
   elements.mainMapContainer.innerHTML = `
     <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; text-align: center; padding: 24px; color: #475569; background: #f8fafc; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
       <div style="width: 64px; height: 64px; border-radius: 50%; background: #eff6ff; display: flex; align-items: center; justify-content: center; font-size: 32px; margin-bottom: 16px; box-shadow: 0 4px 12px rgba(37,99,235,0.12);">🗺️</div>
-      <h3 style="font-size: 19px; font-weight: 700; color: #1e293b; margin: 0 0 8px 0;">Google Maps 활성화 대기 중</h3>
+      <h3 style="font-size: 19px; font-weight: 700; color: #1e293b; margin: 0 0 8px 0;">카카오맵 활성화 대기 중</h3>
       <p style="font-size: 14px; max-width: 380px; line-height: 1.6; color: #64748b; margin: 0 0 20px 0;">
-        서버 환경변수(GOOGLE_MAPS_API_KEY) 확인 및 지도 초기화를 진행 중입니다. 잠시 후 새로고침해 주세요.
+        서버 환경변수(KAKAO_MAP_API_KEY) 확인 및 지도 초기화를 진행 중입니다. 잠시 후 새로고침해 주세요.
       </p>
       <button id="btnReloadMapDirect" style="padding: 11px 22px; background: #2563eb; color: #fff; border: none; border-radius: 12px; font-weight: 600; font-size: 14px; cursor: pointer; box-shadow: 0 4px 12px rgba(37,99,235,0.25); transition: background 0.2s;">
         🔄 새로고침
@@ -299,11 +288,11 @@ async function initApp() {
   showStatus('안전지도 로딩 중...');
 
   try {
-    await loadGoogleMapsSDK();
+    await loadKakaoMapsSDK();
     initMapInstance();
   } catch (err) {
-    console.error('Google Maps SDK error:', err);
-    showStatus('구글맵 로드 대기: API 키 설정을 확인해 주세요.', 6000);
+    console.error('Kakao Maps SDK error:', err);
+    showStatus('카카오맵 로드 대기: API 키 설정을 확인해 주세요.', 6000);
     renderMapFallbackNotice(err.message);
   }
 
@@ -313,7 +302,7 @@ async function initApp() {
         state.userLat = pos.coords.latitude;
         state.userLon = pos.coords.longitude;
         if (state.map) {
-          state.map.setCenter({ lat: state.userLat, lng: state.userLon });
+          state.map.setCenter(new kakao.maps.LatLng(state.userLat, state.userLon));
         }
         fetchFacilities();
       },
@@ -728,7 +717,7 @@ function updateStatsModal(stats) {
 }
 
 // ==========================================================
-// 5. Google Maps 공식 마커 & 인터랙티브 스파이더파이어 시스템
+// 5. 카카오맵(Kakao Maps) 공식 마커 & 인터랙티브 스파이더파이어 시스템
 // ==========================================================
 
 // 기기 종류별 컴팩트 SVG 핀 아이콘 (지도 가림 방지 및 모던 애플/토스 디자인)
@@ -776,11 +765,11 @@ function createCustomPinIcon(item, isNearest, isSelected) {
     <text x="18" y="38" font-size="7" font-weight="900" fill="#ffffff" text-anchor="middle" font-family="'Pretendard', sans-serif">${catText}</text>
   </svg>`.trim();
 
-  return {
-    url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg),
-    scaledSize: new google.maps.Size(w, h),
-    anchor: new google.maps.Point(w / 2, h - 2),
-  };
+  return new kakao.maps.MarkerImage(
+    'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg),
+    new kakao.maps.Size(w, h),
+    { offset: new kakao.maps.Point(w / 2, h - 2) }
+  );
 }
 
 // 복수 기기 밀집 클러스터 핀 아이콘 (밀집 수량 표기)
@@ -826,11 +815,11 @@ function createClusterPinIcon(cluster, isNearest) {
     <text x="20" y="40.5" font-size="7.5" font-weight="900" fill="#ffffff" text-anchor="middle" font-family="'Pretendard', sans-serif">${count}대 밀집</text>
   </svg>`.trim();
 
-  return {
-    url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg),
-    scaledSize: new google.maps.Size(w, h),
-    anchor: new google.maps.Point(w / 2, h - 2),
-  };
+  return new kakao.maps.MarkerImage(
+    'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg),
+    new kakao.maps.Size(w, h),
+    { offset: new kakao.maps.Point(w / 2, h - 2) }
+  );
 }
 
 // 사용자 현위치 레이더 펄스 핀 아이콘
@@ -858,11 +847,11 @@ function createUserLocationIcon() {
     <text x="18" y="38" font-size="6.8" font-weight="900" fill="#ffffff" text-anchor="middle" font-family="'Pretendard', sans-serif">내 위치</text>
   </svg>`.trim();
 
-  return {
-    url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg),
-    scaledSize: new google.maps.Size(w, h),
-    anchor: new google.maps.Point(w / 2, h - 2),
-  };
+  return new kakao.maps.MarkerImage(
+    'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg),
+    new kakao.maps.Size(w, h),
+    { offset: new kakao.maps.Point(w / 2, h - 2) }
+  );
 }
 
 // 지도 인포윈도우 팝업 HTML 생성
@@ -991,19 +980,11 @@ function expandSpider(cluster, centerPos, clusterMarker) {
   clusterMarker.setVisible(false); // 확장 중에는 중심 클러스터 핀 숨김
 
   // 중심점에 앵커 서클 마커 배치
-  state.spiderCenterMarker = new google.maps.Marker({
-    position: centerPos,
+  state.spiderCenterMarker = new kakao.maps.CustomOverlay({
+    position: new kakao.maps.LatLng(centerPos.lat, centerPos.lng),
     map: state.map,
     zIndex: 200,
-    icon: {
-      path: google.maps.SymbolPath.CIRCLE,
-      scale: 5,
-      fillColor: '#3b82f6',
-      fillOpacity: 0.9,
-      strokeColor: '#ffffff',
-      strokeWeight: 2,
-    },
-    title: '밀집 시설 위치',
+    content: '<div style="width: 12px; height: 12px; background: #3b82f6; border: 2px solid #ffffff; border-radius: 50%; box-shadow: 0 0 6px rgba(0,0,0,0.35);"></div>'
   });
 
   const count = cluster.length;
@@ -1026,32 +1007,34 @@ function expandSpider(cluster, centerPos, clusterMarker) {
     const spiderPos = { lat: sLat, lng: sLon };
 
     // 거미줄 연결선 (Polyline)
-    const legLine = new google.maps.Polyline({
-      path: [centerPos, spiderPos],
+    const legLine = new kakao.maps.Polyline({
+      path: [
+        new kakao.maps.LatLng(centerPos.lat, centerPos.lng),
+        new kakao.maps.LatLng(sLat, sLon)
+      ],
       strokeColor: '#3b82f6',
       strokeOpacity: 0.8,
       strokeWeight: 2.2,
-      geodesic: true,
       map: state.map,
     });
     state.spiderLines.push(legLine);
 
     // 방사형으로 펼쳐진 개별 안전시설 핀
     const isSelected = state.selectedFacilityId === item.id;
-    const spiderPin = new google.maps.Marker({
-      position: spiderPos,
+    const spiderPin = new kakao.maps.Marker({
+      position: new kakao.maps.LatLng(sLat, sLon),
       map: state.map,
       title: `[${item.categoryName}] ${item.name} (${item.distanceMeters}m)`,
       zIndex: isSelected ? 600 : 500,
-      icon: createCustomPinIcon(item, item.isNearest, isSelected),
-      animation: google.maps.Animation.DROP,
+      image: createCustomPinIcon(item, item.isNearest, isSelected),
     });
 
-    const infoWindow = new google.maps.InfoWindow({
+    const infoWindow = new kakao.maps.InfoWindow({
       content: createInfoWindowContent(item, item.isNearest),
+      removable: true,
     });
 
-    spiderPin.addListener('click', () => {
+    kakao.maps.event.addListener(spiderPin, 'click', () => {
       // 핀 클릭 시 스파이더를 닫지 않고 해당 기기를 선택하여 인포윈도우 오픈
       selectFacility(item, false);
     });
@@ -1101,7 +1084,7 @@ function expandSpider(cluster, centerPos, clusterMarker) {
 
 function clearMarkers() {
   collapseSpider();
-  if (!state.map || !window.google) return;
+  if (!state.map || !window.kakao) return;
   state.markers.forEach(m => m.setMap(null));
   state.markers = [];
   state.markersMap.clear();
@@ -1111,17 +1094,17 @@ function clearMarkers() {
 
 function renderMapObjects() {
   clearMarkers();
-  if (!state.map || !window.google) return;
+  if (!state.map || !window.kakao) return;
 
-  const userPos = { lat: state.userLat, lng: state.userLon };
+  const userPos = new kakao.maps.LatLng(state.userLat, state.userLon);
 
   // 1. 사용자 현위치 (식별하기 쉬운 파란 핀 + 레이더 링)
-  state.userMarker = new google.maps.Marker({
+  state.userMarker = new kakao.maps.Marker({
     position: userPos,
     map: state.map,
     title: '내 현재 위치',
     zIndex: 999,
-    icon: createUserLocationIcon(),
+    image: createUserLocationIcon(),
   });
 
   // 2. 26m 이내 밀집 시설 물리적 거리 기반 클러스터링
@@ -1134,19 +1117,20 @@ function renderMapObjects() {
       const isNearest = item.isNearest;
       const isSelected = state.selectedFacilityId ? (state.selectedFacilityId === item.id) : isNearest;
 
-      const marker = new google.maps.Marker({
-        position: { lat: item.lat, lng: item.lon },
+      const marker = new kakao.maps.Marker({
+        position: new kakao.maps.LatLng(item.lat, item.lon),
         map: state.map,
         title: `[${item.categoryName}] ${item.name} (${item.distanceMeters}m)`,
         zIndex: isNearest ? 100 : 50,
-        icon: createCustomPinIcon(item, isNearest, isSelected),
+        image: createCustomPinIcon(item, isNearest, isSelected),
       });
 
-      const infoWindow = new google.maps.InfoWindow({
+      const infoWindow = new kakao.maps.InfoWindow({
         content: createInfoWindowContent(item, isNearest),
+        removable: true,
       });
 
-      marker.addListener('click', () => {
+      kakao.maps.event.addListener(marker, 'click', () => {
         collapseSpider();
         selectFacility(item, false);
       });
@@ -1160,15 +1144,15 @@ function renderMapObjects() {
       const centerLon = cluster.reduce((sum, f) => sum + f.lon, 0) / cluster.length;
       const centerPos = { lat: centerLat, lng: centerLon };
 
-      const clusterMarker = new google.maps.Marker({
-        position: centerPos,
+      const clusterMarker = new kakao.maps.Marker({
+        position: new kakao.maps.LatLng(centerLat, centerLon),
         map: state.map,
         title: `${cluster.length}개 안전시설 밀집 (터치하여 펼치기)`,
         zIndex: isNearest ? 150 : 80,
-        icon: createClusterPinIcon(cluster, isNearest),
+        image: createClusterPinIcon(cluster, isNearest),
       });
 
-      clusterMarker.addListener('click', () => {
+      kakao.maps.event.addListener(clusterMarker, 'click', () => {
         expandSpider(cluster, centerPos, clusterMarker);
       });
 
@@ -1176,8 +1160,9 @@ function renderMapObjects() {
 
       // 클러스터 소속 개별 시설 등록
       cluster.forEach(item => {
-        const infoWindow = new google.maps.InfoWindow({
+        const infoWindow = new kakao.maps.InfoWindow({
           content: createInfoWindowContent(item, item.isNearest),
+          removable: true,
         });
         state.markersMap.set(item.id, {
           marker: clusterMarker,
@@ -1194,12 +1179,14 @@ function renderMapObjects() {
   // 3. 최단거리(또는 현재 선택된 시설) 유도선 (Polyline)
   const targetItem = (state.selectedFacilityId && state.facilities.find(f => f.id === state.selectedFacilityId)) || state.nearestFacility;
   if (targetItem) {
-    state.routePolyline = new google.maps.Polyline({
-      path: [userPos, { lat: targetItem.lat, lng: targetItem.lon }],
+    state.routePolyline = new kakao.maps.Polyline({
+      path: [
+        userPos,
+        new kakao.maps.LatLng(targetItem.lat, targetItem.lon)
+      ],
       strokeColor: '#f59e0b',
       strokeOpacity: 0.9,
       strokeWeight: 4,
-      geodesic: true,
       map: state.map,
     });
   }
@@ -1240,7 +1227,7 @@ function selectFacility(item, triggerFromList = false) {
     // 스파이더 핀 선택 아이콘 강조 갱신
     state.spiderMarkers.forEach(s => {
       const isThisSelected = s.item.id === item.id;
-      s.marker.setIcon(createCustomPinIcon(s.item, s.item.isNearest, isThisSelected));
+      s.marker.setImage(createCustomPinIcon(s.item, s.item.isNearest, isThisSelected));
       s.marker.setZIndex(isThisSelected ? 9999 : 500);
     });
 
@@ -1258,9 +1245,9 @@ function selectFacility(item, triggerFromList = false) {
     collapseSpider();
 
     if (state.map) {
-      state.map.panTo({ lat: item.lat, lng: item.lon });
-      if (state.map.getZoom() < 17) {
-        state.map.setZoom(17);
+      state.map.panTo(new kakao.maps.LatLng(item.lat, item.lon));
+      if (state.map.getLevel() > 3) {
+        state.map.setLevel(3);
       }
     }
 
@@ -1270,13 +1257,6 @@ function selectFacility(item, triggerFromList = false) {
     markerObj.marker.setZIndex(9999);
     markerObj.infoWindow.open(state.map, markerObj.marker);
     state.currentInfoWindow = markerObj.infoWindow;
-
-    if (markerObj.marker.setAnimation) {
-      markerObj.marker.setAnimation(google.maps.Animation.BOUNCE);
-      setTimeout(() => {
-        if (markerObj.marker) markerObj.marker.setAnimation(null);
-      }, 1400);
-    }
   }
 
   // 유도선(Polyline) 갱신 (실제 건물/시설 좌표로 연결)
@@ -1284,15 +1264,14 @@ function selectFacility(item, triggerFromList = false) {
     if (state.routePolyline) {
       state.routePolyline.setMap(null);
     }
-    state.routePolyline = new google.maps.Polyline({
+    state.routePolyline = new kakao.maps.Polyline({
       path: [
-        { lat: state.userLat, lng: state.userLon },
-        { lat: item.lat, lng: item.lon }
+        new kakao.maps.LatLng(state.userLat, state.userLon),
+        new kakao.maps.LatLng(item.lat, item.lon)
       ],
       strokeColor: '#f59e0b',
       strokeOpacity: 0.9,
       strokeWeight: 4,
-      geodesic: true,
       map: state.map,
     });
   }
@@ -1704,32 +1683,32 @@ function renderInAppNavigationRoute(routeData, facility) {
   if (state.routePolyline) state.routePolyline.setMap(null);
 
   // 1. 고대비 도보 경로선 렌더링
-  currentNavRouteOutline = new google.maps.Polyline({
-    path: routeData.coordinates,
+  const pathCoords = routeData.coordinates.map(pt => new kakao.maps.LatLng(pt.lat, pt.lng));
+
+  currentNavRouteOutline = new kakao.maps.Polyline({
+    path: pathCoords,
     strokeColor: '#1e3a8a',
     strokeOpacity: 0.95,
     strokeWeight: 7,
-    geodesic: true,
     map: state.map,
     zIndex: 300,
   });
 
-  currentNavRoutePolyline = new google.maps.Polyline({
-    path: routeData.coordinates,
+  currentNavRoutePolyline = new kakao.maps.Polyline({
+    path: pathCoords,
     strokeColor: '#38bdf8',
     strokeOpacity: 1.0,
     strokeWeight: 4,
-    geodesic: true,
     map: state.map,
     zIndex: 301,
   });
 
   // 2. 전체 경로 화면 맞춤 줌
-  const bounds = new google.maps.LatLngBounds();
-  routeData.coordinates.forEach(pt => bounds.extend(pt));
-  bounds.extend({ lat: state.userLat, lng: state.userLon });
-  bounds.extend({ lat: facility.lat, lng: facility.lon });
-  state.map.fitBounds(bounds, { top: 140, bottom: 240, left: 40, right: 40 });
+  const bounds = new kakao.maps.LatLngBounds();
+  pathCoords.forEach(pt => bounds.extend(pt));
+  bounds.extend(new kakao.maps.LatLng(state.userLat, state.userLon));
+  bounds.extend(new kakao.maps.LatLng(facility.lat, facility.lon));
+  state.map.setBounds(bounds);
 
   // 3. UI 지표 및 스텝 업데이트
   elements.navRealDistance.textContent = `${routeData.distanceMeters}`;
@@ -1881,8 +1860,8 @@ function moveToRealGps() {
         state.userLat = pos.coords.latitude;
         state.userLon = pos.coords.longitude;
         if (state.map) {
-          state.map.panTo({ lat: state.userLat, lng: state.userLon });
-          state.map.setZoom(17);
+          state.map.panTo(new kakao.maps.LatLng(state.userLat, state.userLon));
+          state.map.setLevel(3);
         }
         if (elements.locationSearchInput) {
           elements.locationSearchInput.value = '';
@@ -1902,7 +1881,7 @@ function moveToRealGps() {
   }
 }
 
-// 장소/도로명/역명 검색으로 내 기준 위치 이동
+// 장소/도로명/역명 검색으로 내 기준 위치 이동 (카카오맵 Places & Geocoder)
 function searchAndMoveLocation(query) {
   if (!query || !query.trim()) {
     showStatus('검색할 장소나 도로명을 입력해 주세요.', 2000);
@@ -1925,43 +1904,44 @@ function searchAndMoveLocation(query) {
 
   const foundPreset = Object.entries(presetLocations).find(([k]) => q.includes(k) || k.includes(q));
 
-  if (window.google && google.maps && google.maps.Geocoder) {
-    const geocoder = new google.maps.Geocoder();
-    geocoder.geocode({ address: q, region: 'KR' }, (results, status) => {
-      if (status === 'OK' && results && results[0]) {
-        const loc = results[0].geometry.location;
-        state.userLat = loc.lat();
-        state.userLon = loc.lng();
+  const applyLocation = (lat, lon, label) => {
+    state.userLat = lat;
+    state.userLon = lon;
+    if (state.map) {
+      state.map.panTo(new kakao.maps.LatLng(state.userLat, state.userLon));
+      state.map.setLevel(3);
+    }
+    showStatus(`📍 '${label}' 기준 안전시설 탐색`, 2500);
+    fetchFacilities();
+  };
 
-        if (state.map) {
-          state.map.panTo({ lat: state.userLat, lng: state.userLon });
-          state.map.setZoom(17);
-        }
-
-        showStatus(`📍 ${results[0].formatted_address} 기준 안전시설 탐색`, 2500);
-        fetchFacilities();
-      } else if (foundPreset) {
-        state.userLat = foundPreset[1].lat;
-        state.userLon = foundPreset[1].lon;
-        if (state.map) {
-          state.map.panTo({ lat: state.userLat, lng: state.userLon });
-          state.map.setZoom(17);
-        }
-        showStatus(`📍 '${foundPreset[1].name}' 기준 안전시설 탐색`, 2500);
-        fetchFacilities();
+  if (window.kakao && kakao.maps && kakao.maps.services) {
+    const places = new kakao.maps.services.Places();
+    places.keywordSearch(q, (result, status) => {
+      if (status === kakao.maps.services.Status.OK && result && result.length > 0) {
+        const item = result[0];
+        const lat = parseFloat(item.y);
+        const lon = parseFloat(item.x);
+        applyLocation(lat, lon, item.place_name || item.address_name);
       } else {
-        showStatus(`'${q}' 검색 결과를 찾을 수 없습니다. 도로명이나 역명을 입력해 보세요.`, 3000);
+        // 주소 검색 시도
+        const geocoder = new kakao.maps.services.Geocoder();
+        geocoder.addressSearch(q, (addrResult, addrStatus) => {
+          if (addrStatus === kakao.maps.services.Status.OK && addrResult && addrResult.length > 0) {
+            const addr = addrResult[0];
+            const lat = parseFloat(addr.y);
+            const lon = parseFloat(addr.x);
+            applyLocation(lat, lon, addr.address_name);
+          } else if (foundPreset) {
+            applyLocation(foundPreset[1].lat, foundPreset[1].lon, foundPreset[1].name);
+          } else {
+            showStatus(`'${q}' 검색 결과를 찾을 수 없습니다. 도로명이나 역명을 입력해 보세요.`, 3000);
+          }
+        });
       }
     });
   } else if (foundPreset) {
-    state.userLat = foundPreset[1].lat;
-    state.userLon = foundPreset[1].lon;
-    if (state.map) {
-      state.map.panTo({ lat: state.userLat, lng: state.userLon });
-      state.map.setZoom(17);
-    }
-    showStatus(`📍 '${foundPreset[1].name}' 기준 안전시설 탐색`, 2500);
-    fetchFacilities();
+    applyLocation(foundPreset[1].lat, foundPreset[1].lon, foundPreset[1].name);
   } else {
     showStatus(`'${q}' 검색에 실패했습니다. 다른 키워드로 검색해 주세요.`, 2500);
   }
@@ -2042,8 +2022,8 @@ function bindEvents() {
   if (elements.btnFollowNavGps) {
     elements.btnFollowNavGps.addEventListener('click', () => {
       if (state.map) {
-        state.map.panTo({ lat: state.userLat, lng: state.userLon });
-        state.map.setZoom(18);
+        state.map.panTo(new kakao.maps.LatLng(state.userLat, state.userLon));
+        state.map.setLevel(2);
       }
       showStatus('📍 내 현재 위치로 화면을 맞췄습니다.', 1500);
     });
@@ -2052,9 +2032,10 @@ function bindEvents() {
   if (elements.btnFitNavRoute) {
     elements.btnFitNavRoute.addEventListener('click', () => {
       if (currentNavRoutePolyline && state.map) {
-        const bounds = new google.maps.LatLngBounds();
-        currentNavRoutePolyline.getPath().forEach(pt => bounds.extend(pt));
-        state.map.fitBounds(bounds, { top: 140, bottom: 240, left: 40, right: 40 });
+        const bounds = new kakao.maps.LatLngBounds();
+        const path = currentNavRoutePolyline.getPath();
+        path.forEach(pt => bounds.extend(pt));
+        state.map.setBounds(bounds);
       }
     });
   }
