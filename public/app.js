@@ -70,6 +70,22 @@ const elements = {
   btnCloseClusterModal: document.getElementById('btnCloseClusterModal'),
   clusterItemsContainer: document.getElementById('clusterItemsContainer'),
 
+  // 실시간 인앱 길안내 패널 요소
+  inAppNavPanel: document.getElementById('inAppNavigationPanel'),
+  btnCloseNav: document.getElementById('btnCloseNav'),
+  navDestName: document.getElementById('navDestName'),
+  navDestPlace: document.getElementById('navDestPlace'),
+  navRealDistance: document.getElementById('navRealDistance'),
+  navRealDuration: document.getElementById('navRealDuration'),
+  navStepIcon: document.getElementById('navStepIcon'),
+  navStepMain: document.getElementById('navStepMain'),
+  navStepSub: document.getElementById('navStepSub'),
+  navStepsList: document.getElementById('navStepsList'),
+  btnToggleSteps: document.getElementById('btnToggleSteps'),
+  toggleStepsText: document.getElementById('toggleStepsText'),
+  btnFollowNavGps: document.getElementById('btnFollowNavGps'),
+  btnFitNavRoute: document.getElementById('btnFitNavRoute'),
+
   // 지도 및 컨트롤
   mainMapContainer: document.getElementById('mainMap'),
   btnCurrentLocation: document.getElementById('btnCurrentLocation'),
@@ -463,6 +479,8 @@ async function fetchFacilities() {
     renderFacilityList(state.facilities);
 
     hideStatus();
+    // 실제 도로망 보행 거리 비동기 계산 및 순위 보정
+    updateFacilitiesRealWalkingDistances();
   } catch (err) {
     console.error('Fetch Facilities Error:', err);
     showStatus('데이터 통신 오류: 다시 시도해 주세요.', 3000);
@@ -830,13 +848,12 @@ function createInfoWindowContent(item, isNearest) {
       </div>
 
       <div style="display: flex; gap: 5px;">
-        <a href="https://www.google.com/maps/dir/?api=1&origin=${state.userLat},${state.userLon}&destination=${item.lat},${item.lon}&travelmode=walking" 
-           target="_blank" 
-           style="flex: 1; text-align: center; background: #0f172a; color: #ffffff; padding: 6px 8px; border-radius: 6px; font-size: 11px; font-weight: 800; text-decoration: none;">
-          🧭 Google 도보 길안내
-        </a>
+        <button onclick="window.startInAppNavigation('${item.id}')" 
+           style="flex: 1; text-align: center; background: #2563eb; color: #ffffff; border: none; padding: 7px 8px; border-radius: 6px; font-size: 11px; font-weight: 800; cursor: pointer;">
+          🚶‍♂️ 도보 길안내 시작
+        </button>
         <a href="tel:${item.clerkTel ? item.clerkTel.replace(/[^0-9]/g, '') : '119'}" 
-           style="text-align: center; background: #fee2e2; color: #dc2626; padding: 6px 10px; border-radius: 6px; font-size: 11px; font-weight: 800; text-decoration: none;">
+           style="text-align: center; background: #fee2e2; color: #dc2626; padding: 7px 10px; border-radius: 6px; font-size: 11px; font-weight: 800; text-decoration: none;">
           📞 통화
         </a>
       </div>
@@ -1291,8 +1308,7 @@ function updateNearestCard(item) {
   elements.btnCallManager.href = `tel:${item.clerkTel.replace(/[^0-9]/g, '') || '119'}`;
 
   elements.btnNavigation.onclick = () => {
-    const navUrl = `https://www.google.com/maps/dir/?api=1&origin=${state.userLat},${state.userLon}&destination=${item.lat},${item.lon}&travelmode=walking`;
-    window.open(navUrl, '_blank');
+    startInAppNavigation(item.id);
   };
 
   elements.btnReportIssue.onclick = () => {
@@ -1354,14 +1370,24 @@ function renderFacilityList(list) {
         <div class="card-dist-row">
           <span class="card-dist-num">${item.distanceMeters}m</span>
           <span class="card-time-eta">⏱️ ${item.walkingTime}</span>
+          ${item.isRealRoad ? '<span style="font-size: 9.5px; font-weight: 800; color: #2563eb; background: #eff6ff; padding: 1.5px 5px; border-radius: 4px;">🚶 도보 실거리</span>' : ''}
           ${isGolden ? '<span class="card-golden-pill">골든타임 4분 내</span>' : ''}
         </div>
       </div>
       <div class="card-arrow-action">
-        <span>지도 확인</span>
-        <span>➔</span>
+        <button class="btn-card-nav" style="background: #2563eb; color: #ffffff; border: none; border-radius: 8px; padding: 6px 10px; font-size: 11px; font-weight: 800; cursor: pointer; white-space: nowrap;">
+          길안내 ➔
+        </button>
       </div>
     `;
+
+    const navBtn = card.querySelector('.btn-card-nav');
+    if (navBtn) {
+      navBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        startInAppNavigation(item.id);
+      });
+    }
 
     card.addEventListener('click', () => {
       selectFacility(item, true);
@@ -1370,6 +1396,374 @@ function renderFacilityList(list) {
     elements.facilityList.appendChild(card);
   });
 }
+
+// ==========================================================
+// 6-1. 도보 실거리 매트릭스 & 실시간 인앱 길안내 엔진
+// ==========================================================
+let currentNavRoutePolyline = null;
+let currentNavRouteOutline = null;
+let navGpsWatchId = null;
+let currentNavFacility = null;
+let currentNavSteps = [];
+
+// 주변 시설들의 실제 도로망 기반 도보 거리 계산 및 최단거리 순위 재정렬
+async function updateFacilitiesRealWalkingDistances() {
+  if (!state.facilities || state.facilities.length === 0) return;
+
+  const topCandidates = state.facilities.slice(0, 15);
+  try {
+    let data = null;
+    try {
+      const resp = await fetch('/api/routes/matrix', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          origin: { lat: state.userLat, lon: state.userLon },
+          destinations: topCandidates.map(f => ({ id: f.id, lat: f.lat, lon: f.lon })),
+        }),
+        signal: AbortSignal.timeout(4500),
+      });
+      if (resp.ok) data = await resp.json();
+    } catch (e) {
+      console.warn('Matrix API fetch warning:', e.message);
+    }
+
+    // 클라이언트 직접 폴백
+    if (!data || !data.success) {
+      const oLat = state.userLat;
+      const oLon = state.userLon;
+      const coordsStr = `${oLon},${oLat};` + topCandidates.map(t => `${t.lon},${t.lat}`).join(';');
+      const clientUrl = `https://routing.openstreetmap.de/routed-foot/table/v1/driving/${coordsStr}?sources=0&annotations=distance,duration`;
+      const clientResp = await fetch(clientUrl, { signal: AbortSignal.timeout(4000) });
+      if (clientResp.ok) {
+        const osrmData = await clientResp.json();
+        if (osrmData.code === 'Ok' && osrmData.distances && osrmData.distances[0]) {
+          data = {
+            success: true,
+            results: topCandidates.map((t, idx) => {
+              const d = Math.round(osrmData.distances[0][idx + 1] || calculateDistanceMeters(oLat, oLon, t.lat, t.lon) * 1.25);
+              const dur = Math.round(osrmData.durations[0][idx + 1] || d / 1.25);
+              return {
+                id: t.id,
+                distanceMeters: d,
+                durationSeconds: dur,
+                walkingTimeText: getWalkingTimeText(d),
+                isRealRoad: true,
+              };
+            }),
+          };
+        }
+      }
+    }
+
+    if (data && data.success && Array.isArray(data.results)) {
+      const matrixMap = new Map();
+      data.results.forEach(r => matrixMap.set(r.id, r));
+
+      state.facilities.forEach(f => {
+        const m = matrixMap.get(f.id);
+        if (m) {
+          f.distanceMeters = m.distanceMeters;
+          f.walkingTime = m.walkingTimeText;
+          f.isRealRoad = m.isRealRoad;
+        }
+      });
+
+      // 실제 도보 실거리 기준으로 재정렬
+      state.facilities.sort((a, b) => a.distanceMeters - b.distanceMeters);
+      state.facilities.forEach((f, idx) => f.isNearest = (idx === 0));
+      state.nearestFacility = state.facilities[0];
+
+      // UI 및 랭킹 리스트 동기화
+      if (state.selectedFacilityId) {
+        const selected = state.facilities.find(f => f.id === state.selectedFacilityId);
+        if (selected) updateNearestCard(selected);
+      } else {
+        updateNearestCard(state.nearestFacility);
+      }
+      renderFacilityList(state.facilities);
+    }
+  } catch (e) {
+    console.warn('Real walking distance calculation warning:', e);
+  }
+}
+
+// 실시간 인앱 도보 길찾기 시작
+async function startInAppNavigation(facilityId) {
+  const facility = state.facilities.find(f => f.id === facilityId) || (state.nearestFacility && state.nearestFacility.id === facilityId ? state.nearestFacility : null);
+  if (!facility) {
+    showStatus('길안내할 안전시설을 찾을 수 없습니다.', 2000);
+    return;
+  }
+
+  currentNavFacility = facility;
+  showStatus(`🚶‍♂️ '${facility.name}' 도보 경로를 탐색하고 있습니다...`, 2500);
+
+  // 하단 기본 시트 접기 & 스파이더 접기
+  toggleBottomSheet(true);
+  collapseSpider();
+
+  // 인앱 내비게이션 패널 UI 초기화
+  elements.inAppNavPanel.style.display = 'flex';
+  elements.navDestName.textContent = `[${facility.categoryName}] ${facility.name}`;
+  elements.navDestPlace.textContent = `🏢 ${facility.buildPlace || facility.buildAddress || '위치 정보 없음'}`;
+  elements.navRealDistance.textContent = `${facility.distanceMeters}`;
+  elements.navRealDuration.textContent = facility.walkingTime;
+  elements.navStepIcon.textContent = '⏳';
+  elements.navStepMain.textContent = '실제 도로망 기반 도보 경로 계산 중...';
+  elements.navStepSub.textContent = '안전한 보행로를 찾는 중입니다.';
+
+  try {
+    let routeData = null;
+    try {
+      const resp = await fetch('/api/routes/directions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          origin: { lat: state.userLat, lon: state.userLon },
+          destination: { lat: facility.lat, lon: facility.lon },
+        }),
+        signal: AbortSignal.timeout(6000),
+      });
+      if (resp.ok) routeData = await resp.json();
+    } catch (e) {
+      console.warn('Backend directions fetch error, attempting direct client fallback:', e);
+    }
+
+    // 클라이언트 직접 폴백
+    if (!routeData || !routeData.success) {
+      const oLat = state.userLat;
+      const oLon = state.userLon;
+      const dLat = facility.lat;
+      const dLon = facility.lon;
+      const clientUrl = `https://routing.openstreetmap.de/routed-foot/route/v1/driving/${oLon},${oLat};${dLon},${dLat}?overview=full&geometries=geojson&steps=true`;
+      const clientResp = await fetch(clientUrl, { signal: AbortSignal.timeout(5000) });
+      if (clientResp.ok) {
+        const osrmData = await clientResp.json();
+        if (osrmData.code === 'Ok' && osrmData.routes && osrmData.routes[0]) {
+          const r = osrmData.routes[0];
+          routeData = {
+            success: true,
+            distanceMeters: Math.round(r.distance),
+            durationSeconds: Math.round(r.duration),
+            walkingTimeText: getWalkingTimeText(Math.round(r.distance)),
+            coordinates: r.geometry.coordinates.map(c => ({ lat: c[1], lng: c[0] })),
+            steps: parseOsrmSteps(r.legs[0].steps),
+          };
+        }
+      }
+    }
+
+    if (routeData && routeData.success && routeData.coordinates && routeData.coordinates.length > 0) {
+      renderInAppNavigationRoute(routeData, facility);
+      showStatus(`🏁 도보 경로 탐색 완료 (${routeData.distanceMeters}m / ${routeData.walkingTimeText})`, 2500);
+    } else {
+      throw new Error('경로 데이터 생성 실패');
+    }
+  } catch (err) {
+    console.error('In-app navigation error:', err);
+    showStatus('도보 경로 탐색 실패: 직선 경로로 대체 안내합니다.', 2500);
+    const fallbackCoords = [
+      { lat: state.userLat, lng: state.userLon },
+      { lat: facility.lat, lng: facility.lon }
+    ];
+    renderInAppNavigationRoute({
+      distanceMeters: facility.distanceMeters,
+      walkingTimeText: facility.walkingTime,
+      coordinates: fallbackCoords,
+      steps: [
+        { stepIndex: 1, icon: '🚶', instruction: '출발지에서 목적지 방향으로 직진', distanceMeters: facility.distanceMeters },
+        { stepIndex: 2, icon: '🎯', instruction: '목적지 건물 도착', distanceMeters: 0 }
+      ]
+    }, facility);
+  }
+
+  // 실시간 GPS 추적 시작
+  startNavGpsTracking();
+}
+
+// OSRM 스텝 한글화 파서
+function parseOsrmSteps(rawSteps) {
+  if (!rawSteps || !Array.isArray(rawSteps)) return [];
+  return rawSteps.map((s, idx) => {
+    const m = s.maneuver || {};
+    const type = m.type || '';
+    const mod = m.modifier || '';
+    const dist = Math.round(s.distance || 0);
+    const street = s.name ? ` (${s.name})` : '';
+
+    let icon = '🚶';
+    let instruction = '';
+
+    if (type === 'depart') {
+      icon = '🏁';
+      instruction = `출발지에서 ${street || '보행로'} 방면으로 ${dist}m 이동`;
+    } else if (type === 'arrive') {
+      icon = '🎯';
+      instruction = `목적지 도착`;
+    } else if (type === 'turn') {
+      if (mod.includes('left')) {
+        icon = '↰';
+        instruction = `좌회전 후 ${dist}m 이동${street}`;
+      } else if (mod.includes('right')) {
+        icon = '↱';
+        instruction = `우회전 후 ${dist}m 이동${street}`;
+      } else {
+        icon = '↗️';
+        instruction = `갈림길에서 ${dist}m 이동${street}`;
+      }
+    } else if (type === 'continue' || type === 'new name') {
+      icon = '⬆️';
+      instruction = `직진하여 ${dist}m 이동${street}`;
+    } else if (type.includes('roundabout') || type.includes('rotary')) {
+      icon = '🔄';
+      instruction = `교차로 통과 후 ${dist}m 이동${street}`;
+    } else {
+      icon = '🚶';
+      instruction = `${dist > 0 ? dist + 'm ' : ''}보행로 따라 이동${street}`;
+    }
+
+    return {
+      stepIndex: idx + 1,
+      icon,
+      instruction,
+      distanceMeters: dist,
+      location: m.location ? { lat: m.location[1], lng: m.location[0] } : null
+    };
+  });
+}
+
+// 인앱 도보 경로 지도 렌더링
+function renderInAppNavigationRoute(routeData, facility) {
+  if (!state.map) return;
+
+  if (currentNavRoutePolyline) currentNavRoutePolyline.setMap(null);
+  if (currentNavRouteOutline) currentNavRouteOutline.setMap(null);
+  if (state.routePolyline) state.routePolyline.setMap(null);
+
+  // 1. 고대비 도보 경로선 렌더링
+  currentNavRouteOutline = new google.maps.Polyline({
+    path: routeData.coordinates,
+    strokeColor: '#1e3a8a',
+    strokeOpacity: 0.95,
+    strokeWeight: 7,
+    geodesic: true,
+    map: state.map,
+    zIndex: 300,
+  });
+
+  currentNavRoutePolyline = new google.maps.Polyline({
+    path: routeData.coordinates,
+    strokeColor: '#38bdf8',
+    strokeOpacity: 1.0,
+    strokeWeight: 4,
+    geodesic: true,
+    map: state.map,
+    zIndex: 301,
+  });
+
+  // 2. 전체 경로 화면 맞춤 줌
+  const bounds = new google.maps.LatLngBounds();
+  routeData.coordinates.forEach(pt => bounds.extend(pt));
+  bounds.extend({ lat: state.userLat, lng: state.userLon });
+  bounds.extend({ lat: facility.lat, lng: facility.lon });
+  state.map.fitBounds(bounds, { top: 140, bottom: 240, left: 40, right: 40 });
+
+  // 3. UI 지표 및 스텝 업데이트
+  elements.navRealDistance.textContent = `${routeData.distanceMeters}`;
+  elements.navRealDuration.textContent = routeData.walkingTimeText;
+
+  currentNavSteps = routeData.steps || [];
+  if (currentNavSteps.length > 0) {
+    const firstStep = currentNavSteps[0];
+    elements.navStepIcon.textContent = firstStep.icon || '🚶';
+    elements.navStepMain.textContent = firstStep.instruction;
+    elements.navStepSub.textContent = `구간 거리 약 ${firstStep.distanceMeters}m`;
+
+    if (elements.navStepsList) {
+      elements.navStepsList.innerHTML = '';
+      currentNavSteps.forEach((s, idx) => {
+        const stepRow = document.createElement('div');
+        stepRow.className = `nav-step-item ${idx === 0 ? 'active' : ''}`;
+        stepRow.innerHTML = `
+          <span class="step-num">${s.stepIndex || idx + 1}</span>
+          <span class="step-glyph">${s.icon || '🚶'}</span>
+          <div class="step-detail">
+            <div class="step-desc">${s.instruction}</div>
+            <div class="step-dist">${s.distanceMeters > 0 ? s.distanceMeters + 'm' : '도착'}</div>
+          </div>
+        `;
+        elements.navStepsList.appendChild(stepRow);
+      });
+      if (elements.toggleStepsText) {
+        elements.toggleStepsText.textContent = `전체 경로 ${currentNavSteps.length}단계 보기 ▼`;
+      }
+    }
+  }
+}
+
+// 실시간 내비게이션 GPS 추적
+function startNavGpsTracking() {
+  if (!navigator.geolocation) return;
+  if (navGpsWatchId !== null) navigator.geolocation.clearWatch(navGpsWatchId);
+
+  navGpsWatchId = navigator.geolocation.watchPosition(
+    (pos) => {
+      state.userLat = pos.coords.latitude;
+      state.userLon = pos.coords.longitude;
+      if (state.userMarker) {
+        state.userMarker.setPosition({ lat: state.userLat, lng: state.userLon });
+      }
+
+      if (currentNavFacility) {
+        const remainingDist = calculateDistanceMeters(state.userLat, state.userLon, currentNavFacility.lat, currentNavFacility.lon);
+        elements.navRealDistance.textContent = `${remainingDist}`;
+        elements.navRealDuration.textContent = getWalkingTimeText(remainingDist);
+
+        if (remainingDist <= 15) {
+          elements.navStepIcon.textContent = '🎯';
+          elements.navStepMain.textContent = '목적지 주변 도착! 건물 내부로 진입하세요.';
+          elements.navStepSub.textContent = `🏢 ${currentNavFacility.buildPlace || '상세 설치 위치'}`;
+          showStatus('🎉 목적지 주변에 도착했습니다!', 4000);
+        }
+      }
+    },
+    (err) => console.warn('Nav GPS watch warning:', err),
+    { enableHighAccuracy: true, maximumAge: 2000, timeout: 10000 }
+  );
+}
+
+// 인앱 도보 길찾기 종료
+function stopInAppNavigation() {
+  if (navGpsWatchId !== null) {
+    navigator.geolocation.clearWatch(navGpsWatchId);
+    navGpsWatchId = null;
+  }
+  if (currentNavRoutePolyline) {
+    currentNavRoutePolyline.setMap(null);
+    currentNavRoutePolyline = null;
+  }
+  if (currentNavRouteOutline) {
+    currentNavRouteOutline.setMap(null);
+    currentNavRouteOutline = null;
+  }
+  if (elements.inAppNavPanel) {
+    elements.inAppNavPanel.style.display = 'none';
+  }
+  currentNavFacility = null;
+  currentNavSteps = [];
+  toggleBottomSheet(false);
+
+  if (state.selectedFacilityId) {
+    const item = state.facilities.find(f => f.id === state.selectedFacilityId);
+    if (item) selectFacility(item, false);
+  }
+  showStatus('도보 길안내가 종료되었습니다.', 1800);
+}
+
+// 글로벌 등록 (인포윈도우 등 인라인 onclick 호출 지원)
+window.startInAppNavigation = startInAppNavigation;
+window.stopInAppNavigation = stopInAppNavigation;
 
 // ==========================================================
 // 7. 제보 시스템 & 모달 제어
@@ -1563,6 +1957,43 @@ function bindEvents() {
   if (elements.btnCloseClusterModal) {
     elements.btnCloseClusterModal.addEventListener('click', () => {
       collapseSpider();
+    });
+  }
+
+  // 실시간 인앱 도보 내비게이션 컨트롤 바인딩
+  if (elements.btnCloseNav) {
+    elements.btnCloseNav.addEventListener('click', stopInAppNavigation);
+  }
+
+  if (elements.btnToggleSteps) {
+    elements.btnToggleSteps.addEventListener('click', () => {
+      const isHidden = elements.navStepsList.style.display === 'none';
+      elements.navStepsList.style.display = isHidden ? 'flex' : 'none';
+      if (elements.toggleStepsText) {
+        elements.toggleStepsText.textContent = isHidden
+          ? `전체 경로 ${currentNavSteps.length}단계 접기 ▲`
+          : `전체 경로 ${currentNavSteps.length}단계 보기 ▼`;
+      }
+    });
+  }
+
+  if (elements.btnFollowNavGps) {
+    elements.btnFollowNavGps.addEventListener('click', () => {
+      if (state.map) {
+        state.map.panTo({ lat: state.userLat, lng: state.userLon });
+        state.map.setZoom(18);
+      }
+      showStatus('📍 내 현재 위치로 화면을 맞췄습니다.', 1500);
+    });
+  }
+
+  if (elements.btnFitNavRoute) {
+    elements.btnFitNavRoute.addEventListener('click', () => {
+      if (currentNavRoutePolyline && state.map) {
+        const bounds = new google.maps.LatLngBounds();
+        currentNavRoutePolyline.getPath().forEach(pt => bounds.extend(pt));
+        state.map.fitBounds(bounds, { top: 140, bottom: 240, left: 40, right: 40 });
+      }
     });
   }
 

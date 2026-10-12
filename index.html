@@ -113,6 +113,57 @@
         </button>
       </div>
 
+      <!-- 실시간 인앱 도보 길안내 플로팅 패널 -->
+      <div id="inAppNavigationPanel" class="in-app-nav-panel" style="display: none;">
+        <div class="nav-panel-top">
+          <div class="nav-status-badge">
+            <span class="nav-live-dot"></span>
+            <span>도보 실시간 길안내</span>
+          </div>
+          <button id="btnCloseNav" class="btn-close-nav" title="길안내 종료">종료 ✕</button>
+        </div>
+
+        <div class="nav-target-row">
+          <div class="nav-target-info">
+            <h3 id="navDestName" class="nav-dest-title">목적지 시설명</h3>
+            <p id="navDestPlace" class="nav-dest-place">🏢 상세 위치 정보</p>
+          </div>
+          <div class="nav-target-metric">
+            <div class="nav-dist-box">
+              <span id="navRealDistance" class="nav-dist-num">--</span>
+              <span class="nav-dist-unit">m</span>
+            </div>
+            <span id="navRealDuration" class="nav-duration-txt">약 --분</span>
+          </div>
+        </div>
+
+        <!-- 턴바이턴 단계별 보행 가이드 -->
+        <div class="nav-turn-by-turn-card">
+          <div class="nav-current-step">
+            <span class="step-icon" id="navStepIcon">🚶</span>
+            <div class="step-text-wrap">
+              <div class="step-main" id="navStepMain">도보 경로 탐색 중...</div>
+              <div class="step-sub" id="navStepSub">도로 보행로를 따라 이동하세요</div>
+            </div>
+          </div>
+          <div class="nav-steps-accordion" id="navStepsList" style="display: none;">
+            <!-- 상세 스텝 목록 동적 렌더링 -->
+          </div>
+          <button id="btnToggleSteps" class="btn-toggle-steps">
+            <span id="toggleStepsText">전체 경로 0단계 보기 ▼</span>
+          </button>
+        </div>
+
+        <div class="nav-bottom-actions">
+          <button id="btnFollowNavGps" class="btn-nav-action active">
+            <span>📍 내 위치 추적 켜짐</span>
+          </button>
+          <button id="btnFitNavRoute" class="btn-nav-action secondary">
+            <span>🗺️ 전체 경로 보기</span>
+          </button>
+        </div>
+      </div>
+
       <!-- 중앙 상태 토스트 -->
       <div id="statusBanner" class="status-toast">
         <span class="spinner-dot"></span>

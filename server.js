@@ -460,6 +460,194 @@ app.get('/api/reports', (req, res) => {
   });
 });
 
+// ==========================================================
+// 도보 실거리 매트릭스 및 실시간 인앱 길안내 API
+// ==========================================================
+
+// 다중 시설 도보 실거리 계산 API (Table Matrix)
+app.post('/api/routes/matrix', async (req, res) => {
+  try {
+    const { origin, destinations } = req.body;
+    if (!origin || !destinations || !Array.isArray(destinations) || destinations.length === 0) {
+      return res.status(400).json({ success: false, message: '출발지와 목적지 목록이 필요합니다.' });
+    }
+
+    const oLat = parseFloat(origin.lat);
+    const oLon = parseFloat(origin.lon);
+
+    // 최대 25개 대상 처리 (OSRM 제한 준수)
+    const targets = destinations.slice(0, 25);
+    const coordsStr = `${oLon},${oLat};` + targets.map(t => `${t.lon},${t.lat}`).join(';');
+    const url = `https://routing.openstreetmap.de/routed-foot/table/v1/driving/${coordsStr}?sources=0&annotations=distance,duration`;
+
+    let data = null;
+    try {
+      const resp = await fetch(url, { signal: AbortSignal.timeout(4000) });
+      if (resp.ok) {
+        data = await resp.json();
+      }
+    } catch (e) {
+      console.warn('Matrix fetch warning:', e.message);
+    }
+
+    const results = targets.map((t, idx) => {
+      let distMeters = null;
+      let durationSec = null;
+
+      if (data && data.code === 'Ok' && data.distances && data.distances[0] && data.distances[0][idx + 1] !== null) {
+        distMeters = Math.round(data.distances[0][idx + 1]);
+        durationSec = Math.round(data.durations[0][idx + 1]);
+      } else {
+        // Fallback: 직선거리 x 1.25 (보행 도로망 우회 계수)
+        const straight = calculateDistanceMeters(oLat, oLon, t.lat, t.lon);
+        distMeters = Math.round(straight * 1.25);
+        durationSec = Math.round(distMeters / 1.25);
+      }
+
+      const mins = Math.floor(durationSec / 60);
+      const secs = durationSec % 60;
+      const walkingTimeText = mins === 0 ? `약 ${Math.max(secs, 10)}초` : `약 ${mins}분 ${secs > 0 ? secs + '초' : ''}`;
+
+      return {
+        id: t.id,
+        distanceMeters: distMeters,
+        durationSeconds: durationSec,
+        walkingTimeText,
+        isRealRoad: (data && data.code === 'Ok')
+      };
+    });
+
+    res.json({ success: true, results });
+  } catch (error) {
+    console.error('Error in route matrix:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 단일 목적지 상세 도보 경로 및 턴바이턴 길안내 API
+app.post('/api/routes/directions', async (req, res) => {
+  try {
+    const { origin, destination } = req.body;
+    if (!origin || !destination) {
+      return res.status(400).json({ success: false, message: '출발지와 목적지 좌표가 필요합니다.' });
+    }
+
+    const oLat = parseFloat(origin.lat);
+    const oLon = parseFloat(origin.lon);
+    const dLat = parseFloat(destination.lat);
+    const dLon = parseFloat(destination.lon);
+
+    const url = `https://routing.openstreetmap.de/routed-foot/route/v1/driving/${oLon},${oLat};${dLon},${dLat}?overview=full&geometries=geojson&steps=true`;
+
+    let data = null;
+    try {
+      const resp = await fetch(url, { signal: AbortSignal.timeout(5000) });
+      if (resp.ok) {
+        data = await resp.json();
+      }
+    } catch (e) {
+      console.warn('Directions fetch error:', e.message);
+    }
+
+    if (data && data.code === 'Ok' && data.routes && data.routes[0]) {
+      const route = data.routes[0];
+      const distMeters = Math.round(route.distance);
+      const durationSec = Math.round(route.duration);
+      const coordinates = route.geometry.coordinates.map(coord => ({ lat: coord[1], lng: coord[0] }));
+
+      // 턴바이턴 스텝 한글화 파싱
+      const rawSteps = (route.legs && route.legs[0] && route.legs[0].steps) || [];
+      const steps = rawSteps.map((s, idx) => {
+        const m = s.maneuver || {};
+        const type = m.type || '';
+        const mod = m.modifier || '';
+        const dist = Math.round(s.distance || 0);
+        const street = s.name ? ` (${s.name})` : '';
+
+        let icon = '🚶';
+        let instruction = '';
+
+        if (type === 'depart') {
+          icon = '🏁';
+          instruction = `출발지에서 ${street || '보행로'} 방면으로 ${dist}m 이동`;
+        } else if (type === 'arrive') {
+          icon = '🎯';
+          instruction = `목적지 도착`;
+        } else if (type === 'turn') {
+          if (mod.includes('left')) {
+            icon = '↰';
+            instruction = `좌회전 후 ${dist}m 이동${street}`;
+          } else if (mod.includes('right')) {
+            icon = '↱';
+            instruction = `우회전 후 ${dist}m 이동${street}`;
+          } else {
+            icon = '↗️';
+            instruction = `갈림길에서 ${dist}m 이동${street}`;
+          }
+        } else if (type === 'continue' || type === 'new name') {
+          icon = '⬆️';
+          instruction = `직진하여 ${dist}m 이동${street}`;
+        } else if (type.includes('roundabout') || type.includes('rotary')) {
+          icon = '🔄';
+          instruction = `교차로 통과 후 ${dist}m 이동${street}`;
+        } else {
+          icon = '🚶';
+          instruction = `${dist > 0 ? dist + 'm ' : ''}보행로 따라 이동${street}`;
+        }
+
+        return {
+          stepIndex: idx + 1,
+          icon,
+          instruction,
+          distanceMeters: dist,
+          location: m.location ? { lat: m.location[1], lng: m.location[0] } : null
+        };
+      });
+
+      const mins = Math.floor(durationSec / 60);
+      const secs = durationSec % 60;
+      const walkingTimeText = mins === 0 ? `약 ${Math.max(secs, 10)}초` : `약 ${mins}분 ${secs > 0 ? secs + '초' : ''}`;
+
+      return res.json({
+        success: true,
+        isRealRoad: true,
+        distanceMeters: distMeters,
+        durationSeconds: durationSec,
+        walkingTimeText,
+        coordinates,
+        steps,
+      });
+    }
+
+    // Fallback: 직선 좌표 기반 기본 스텝 생성
+    const straightDist = calculateDistanceMeters(oLat, oLon, dLat, dLon);
+    const estDist = Math.round(straightDist * 1.25);
+    const estSec = Math.round(estDist / 1.25);
+    const mins = Math.floor(estSec / 60);
+    const secs = estSec % 60;
+
+    return res.json({
+      success: true,
+      isRealRoad: false,
+      distanceMeters: estDist,
+      durationSeconds: estSec,
+      walkingTimeText: mins === 0 ? `약 ${Math.max(secs, 10)}초` : `약 ${mins}분 ${secs > 0 ? secs + '초' : ''}`,
+      coordinates: [
+        { lat: oLat, lng: oLon },
+        { lat: dLat, lng: dLon }
+      ],
+      steps: [
+        { stepIndex: 1, icon: '🏁', instruction: `출발지에서 목적지 방면으로 보행`, distanceMeters: Math.round(estDist / 2) },
+        { stepIndex: 2, icon: '🎯', instruction: `목적지 주변 도착 및 내부 진입`, distanceMeters: Math.round(estDist / 2) }
+      ]
+    });
+
+  } catch (error) {
+    console.error('Error in directions:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) {
   app.listen(PORT, () => {
     console.log(`====================================================`);
