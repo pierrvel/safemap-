@@ -35,6 +35,13 @@ const state = {
   userMarker: null,
   routePolyline: null,
   currentInfoWindow: null,
+
+  // 인터랙티브 스파이더파이어 상태
+  spiderMarkers: [],
+  spiderLines: [],
+  spiderCenterMarker: null,
+  activeClusterMarker: null,
+  activeClusterId: null,
   
   isSheetCollapsed: false,
   userReports: JSON.parse(localStorage.getItem('safemap_user_reports') || '[]'),
@@ -56,6 +63,12 @@ const elements = {
   btnClearSearch: document.getElementById('btnClearSearch'),
   btnSearchLocation: document.getElementById('btnSearchLocation'),
   btnGpsDirect: document.getElementById('btnGpsDirect'),
+
+  // 밀집 시설 선택 모달
+  clusterSelectionModal: document.getElementById('clusterSelectionModal'),
+  clusterTitle: document.getElementById('clusterTitle'),
+  btnCloseClusterModal: document.getElementById('btnCloseClusterModal'),
+  clusterItemsContainer: document.getElementById('clusterItemsContainer'),
 
   // 지도 및 컨트롤
   mainMapContainer: document.getElementById('mainMap'),
@@ -181,8 +194,9 @@ function initMapInstance() {
 
   state.map = new google.maps.Map(elements.mainMapContainer, mapOptions);
 
-  // 지도 빈 곳 클릭 시 인포윈도우만 닫고, 사용자 기준 위치는 임의 변경되지 않도록 보호
+  // 지도 빈 곳 클릭 시 스파이더파이어 접기 및 인포윈도우 닫기
   state.map.addListener('click', () => {
+    collapseSpider();
     if (state.currentInfoWindow) {
       state.currentInfoWindow.close();
       state.currentInfoWindow = null;
@@ -634,13 +648,10 @@ function updateStatsModal(stats) {
 }
 
 // ==========================================================
-// 5. Google Maps 공식 마커 및 최단거리 경로 렌더링
-// ==========================================================
-// ==========================================================
-// 5. Google Maps 공식 마커 & 커스텀 SVG 핀 렌더링
+// 5. Google Maps 공식 마커 & 인터랙티브 스파이더파이어 시스템
 // ==========================================================
 
-// 기기 종류별 고해상도 SVG 핀 아이콘 생성 (AED: 적색+⚡, 소화기: 주황+🧯, 소화전: 청색+💧)
+// 기기 종류별 컴팩트 SVG 핀 아이콘 (지도 가림 방지 및 모던 애플/토스 디자인)
 function createCustomPinIcon(item, isNearest, isSelected) {
   let bgColor = '#ef4444'; // AED Red
   let iconEmoji = '⚡';
@@ -657,74 +668,124 @@ function createCustomPinIcon(item, isNearest, isSelected) {
   }
 
   const strokeColor = isSelected ? '#2563eb' : (isNearest ? '#f59e0b' : '#ffffff');
-  const strokeWidth = isSelected ? 4 : (isNearest ? 3.5 : 2);
+  const strokeWidth = isSelected ? 3.5 : (isNearest ? 3 : 2);
   const scale = isNearest || isSelected ? 1.15 : 1.0;
 
-  const w = Math.round(48 * scale);
-  const h = Math.round(58 * scale);
+  const w = Math.round(36 * scale);
+  const h = Math.round(46 * scale);
 
-  const goldHalo = isNearest ? `<circle cx="24" cy="22" r="21" fill="none" stroke="#f59e0b" stroke-width="3" stroke-dasharray="3,2" />` : '';
+  const goldHalo = isNearest ? `<circle cx="18" cy="17" r="16" fill="none" stroke="#f59e0b" stroke-width="2.5" stroke-dasharray="3,2" />` : '';
 
   const svg = `
-  <svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 48 58">
+  <svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 36 46">
     <defs>
-      <filter id="p-shadow" x="-30%" y="-20%" width="160%" height="150%">
-        <feDropShadow dx="0" dy="2.5" stdDeviation="2.5" flood-color="#000000" flood-opacity="0.35"/>
+      <filter id="p-sh-${item.id}" x="-30%" y="-20%" width="160%" height="150%">
+        <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#000000" flood-opacity="0.32"/>
       </filter>
     </defs>
     ${goldHalo}
-    <!-- 핀 본체 (물방울형 포인터) -->
-    <path d="M 24 2 C 13 2, 4 11, 4 22 C 4 35, 24 55, 24 55 C 24 55, 44 35, 44 22 C 44 11, 35 2, 24 2 Z"
-          fill="${bgColor}" stroke="${strokeColor}" stroke-width="${strokeWidth}" filter="url(#p-shadow)" />
-    <!-- 내부 흰색 원형 디스크 -->
-    <circle cx="24" cy="20" r="12.5" fill="#ffffff" />
-    <!-- 이모지 심볼 아이콘 -->
-    <text x="24" y="25" font-size="13" text-anchor="middle" font-family="'Apple Color Emoji','Segoe UI Emoji',sans-serif">${iconEmoji}</text>
-    <!-- 하단 텍스트 명칭 알약 배지 -->
-    <rect x="7" y="38" width="34" height="13" rx="6.5" fill="${bgColor}" stroke="#ffffff" stroke-width="1.2" />
-    <text x="24" y="47.5" font-size="8.5" font-weight="900" fill="#ffffff" text-anchor="middle" font-family="'Pretendard', sans-serif">${catText}</text>
+    <!-- 핀 본체 -->
+    <path d="M 18 2 C 9.5 2, 3 8.8, 3 17.5 C 3 28, 18 44, 18 44 C 18 44, 33 28, 33 17.5 C 33 8.8, 26.5 2, 18 2 Z"
+          fill="${bgColor}" stroke="${strokeColor}" stroke-width="${strokeWidth}" filter="url(#p-sh-${item.id})" />
+    <!-- 내부 흰색 원 -->
+    <circle cx="18" cy="16.5" r="9.5" fill="#ffffff" />
+    <!-- 이모지 아이콘 -->
+    <text x="18" y="20.5" font-size="10.5" text-anchor="middle" font-family="'Apple Color Emoji','Segoe UI Emoji',sans-serif">${iconEmoji}</text>
+    <!-- 명칭 알약 -->
+    <rect x="5.5" y="30.5" width="25" height="10" rx="5" fill="${bgColor}" stroke="#ffffff" stroke-width="1" />
+    <text x="18" y="38" font-size="7" font-weight="900" fill="#ffffff" text-anchor="middle" font-family="'Pretendard', sans-serif">${catText}</text>
   </svg>`.trim();
 
   return {
     url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg),
     scaledSize: new google.maps.Size(w, h),
-    anchor: new google.maps.Point(w / 2, h - Math.round(3 * scale)),
+    anchor: new google.maps.Point(w / 2, h - 2),
+  };
+}
+
+// 복수 기기 밀집 클러스터 핀 아이콘 (밀집 수량 표기)
+function createClusterPinIcon(cluster, isNearest) {
+  const count = cluster.length;
+  const hasAed = cluster.some(f => f.category === 'aed');
+  const hasExt = cluster.some(f => f.category === 'extinguisher');
+  const hasHyd = cluster.some(f => f.category === 'hydrant');
+
+  let bgColor = '#7c3aed'; // 보라색 복합 클러스터
+  let emoji = '🏢';
+  if (hasAed && !hasExt && !hasHyd) {
+    bgColor = '#ef4444';
+    emoji = '⚡';
+  } else if (!hasAed && hasExt && !hasHyd) {
+    bgColor = '#f97316';
+    emoji = '🧯';
+  } else if (!hasAed && !hasExt && hasHyd) {
+    bgColor = '#2563eb';
+    emoji = '💧';
+  }
+
+  const w = 40;
+  const h = 48;
+  const strokeColor = isNearest ? '#f59e0b' : '#ffffff';
+
+  const svg = `
+  <svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 40 48">
+    <defs>
+      <filter id="c-sh" x="-30%" y="-20%" width="160%" height="150%">
+        <feDropShadow dx="0" dy="2" stdDeviation="2.5" flood-color="#000000" flood-opacity="0.35"/>
+      </filter>
+    </defs>
+    <!-- 핀 본체 -->
+    <path d="M 20 2 C 10 2, 3 9, 3 18 C 3 29, 20 46, 20 46 C 20 46, 37 29, 37 18 C 37 9, 30 2, 20 2 Z"
+          fill="${bgColor}" stroke="${strokeColor}" stroke-width="${isNearest ? 3 : 2}" filter="url(#c-sh)" />
+    <!-- 내부 흰색 디스크 -->
+    <circle cx="20" cy="17" r="11" fill="#ffffff" />
+    <!-- 이모지 심볼 -->
+    <text x="20" y="21" font-size="11" text-anchor="middle" font-family="'Apple Color Emoji','Segoe UI Emoji',sans-serif">${emoji}</text>
+    <!-- 밀집 수량 배지 -->
+    <rect x="7" y="32" width="26" height="11" rx="5.5" fill="#0f172a" stroke="#ffffff" stroke-width="1.2" />
+    <text x="20" y="40.5" font-size="7.5" font-weight="900" fill="#ffffff" text-anchor="middle" font-family="'Pretendard', sans-serif">${count}대 밀집</text>
+  </svg>`.trim();
+
+  return {
+    url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg),
+    scaledSize: new google.maps.Size(w, h),
+    anchor: new google.maps.Point(w / 2, h - 2),
   };
 }
 
 // 사용자 현위치 레이더 펄스 핀 아이콘
 function createUserLocationIcon() {
-  const w = 44;
-  const h = 54;
+  const w = 36;
+  const h = 46;
   const svg = `
-  <svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 44 54">
+  <svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 36 46">
     <defs>
-      <filter id="u-shadow" x="-30%" y="-20%" width="160%" height="150%">
-        <feDropShadow dx="0" dy="3" stdDeviation="2.5" flood-color="#000000" flood-opacity="0.32"/>
+      <filter id="u-sh" x="-30%" y="-20%" width="160%" height="150%">
+        <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#000000" flood-opacity="0.3"/>
       </filter>
     </defs>
-    <!-- 레이더 펄스 외곽 링 -->
-    <circle cx="22" cy="20" r="18" fill="#3b82f6" fill-opacity="0.22" />
+    <!-- 레이더 펄스 링 -->
+    <circle cx="18" cy="17" r="15" fill="#3b82f6" fill-opacity="0.25" />
     <!-- 핀 본체 -->
-    <path d="M 22 2 C 12 2, 4 10, 4 20 C 4 32, 22 51, 22 51 C 22 51, 40 32, 40 20 C 40 10, 32 2, 22 2 Z"
-          fill="#1d4ed8" stroke="#ffffff" stroke-width="2.5" filter="url(#u-shadow)" />
+    <path d="M 18 2 C 9.5 2, 3 8.8, 3 17.5 C 3 28, 18 44, 18 44 C 18 44, 33 28, 33 17.5 C 33 8.8, 26.5 2, 18 2 Z"
+          fill="#1d4ed8" stroke="#ffffff" stroke-width="2" filter="url(#u-sh)" />
     <!-- 중앙 타겟 조준원 -->
-    <circle cx="22" cy="19" r="11" fill="#ffffff" />
-    <circle cx="22" cy="19" r="6" fill="#2563eb" />
-    <circle cx="22" cy="19" r="2.5" fill="#ffffff" />
-    <!-- 내 위치 텍스트 알약 -->
-    <rect x="6" y="37" width="32" height="12" rx="6" fill="#1d4ed8" stroke="#ffffff" stroke-width="1" />
-    <text x="22" y="46" font-size="7.5" font-weight="900" fill="#ffffff" text-anchor="middle" font-family="'Pretendard', sans-serif">내 위치</text>
+    <circle cx="18" cy="16.5" r="9.5" fill="#ffffff" />
+    <circle cx="18" cy="16.5" r="5" fill="#2563eb" />
+    <circle cx="18" cy="16.5" r="2" fill="#ffffff" />
+    <!-- 내 위치 라벨 -->
+    <rect x="5.5" y="30.5" width="25" height="10" rx="5" fill="#1d4ed8" stroke="#ffffff" stroke-width="1" />
+    <text x="18" y="38" font-size="6.8" font-weight="900" fill="#ffffff" text-anchor="middle" font-family="'Pretendard', sans-serif">내 위치</text>
   </svg>`.trim();
 
   return {
     url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg),
     scaledSize: new google.maps.Size(w, h),
-    anchor: new google.maps.Point(w / 2, h - 3),
+    anchor: new google.maps.Point(w / 2, h - 2),
   };
 }
 
-// 지도 인포윈도우 팝업 HTML 생성 (동일 건물 내 복수 기기 선택 탭 지원)
+// 지도 인포윈도우 팝업 HTML 생성
 function createInfoWindowContent(item, isNearest) {
   let catIcon = '⚡';
   let catText = '자동심장충격기 (AED)';
@@ -742,31 +803,6 @@ function createInfoWindowContent(item, isNearest) {
     catBg = '#eff6ff';
     catColor = '#2563eb';
   }
-
-  const siblingSection = (item.siblingItems && item.siblingItems.length > 1) ? `
-    <div style="margin-top: 8px; padding-top: 6px; border-top: 1px dashed #cbd5e1;">
-      <div style="font-size: 10px; font-weight: 800; color: #475569; margin-bottom: 5px;">
-        🏢 동일 건물/위치 안전시설 (${item.siblingItems.length}대 설치):
-      </div>
-      <div style="display: flex; flex-wrap: wrap; gap: 4px;">
-        ${item.siblingItems.map(sib => {
-          const isCurr = sib.id === item.id;
-          const icon = sib.category === 'aed' ? '⚡' : (sib.category === 'extinguisher' ? '🧯' : '💧');
-          const shortPlace = sib.buildPlace ? sib.buildPlace.replace(/^[0-9A-Za-z가-힣]+동\s*/, '').substring(0, 14) : sib.categoryName;
-          return `
-            <button onclick="window.safemapSelectFacilityById('${sib.id}')" 
-                    style="border: 1.5px solid ${isCurr ? '#2563eb' : '#cbd5e1'}; 
-                           background: ${isCurr ? '#eff6ff' : '#ffffff'}; 
-                           color: ${isCurr ? '#1e40af' : '#334155'}; 
-                           font-weight: 800; font-size: 10px; padding: 3px 6px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 2px;">
-              <span>${icon}</span>
-              <span>${shortPlace}</span>
-            </button>
-          `;
-        }).join('')}
-      </div>
-    </div>
-  ` : '';
 
   return `
     <div style="font-family: Pretendard, -apple-system, sans-serif; padding: 6px 4px; max-width: 250px; line-height: 1.45;">
@@ -804,73 +840,188 @@ function createInfoWindowContent(item, isNearest) {
           📞 통화
         </a>
       </div>
-
-      ${siblingSection}
     </div>
   `;
 }
 
-// 인접/동일 좌표 시설 자동 방사 분산 (Spiderfier) 알고리즘
-// 동일 건물 내 여러 핀이 완전 겹쳐서 클릭 불가능한 문제를 원천 해결
-function applyCoordinateDispersal(facilities) {
-  const groups = new Map();
+// 26미터 이내 밀집 시설 물리적 거리 기반 클러스터링 알고리즘
+function clusterFacilities(facilities) {
+  const clusters = [];
+  const assigned = new Set();
+  const sorted = [...facilities].sort((a, b) => a.distanceMeters - b.distanceMeters);
 
-  facilities.forEach(item => {
-    // 소수점 4자리(~11m) 기준으로 동일 건물/스폿 그룹핑
-    const key = `${item.lat.toFixed(4)},${item.lon.toFixed(4)}`;
-    if (!groups.has(key)) {
-      groups.set(key, []);
-    }
-    groups.get(key).push(item);
+  sorted.forEach((item) => {
+    if (assigned.has(item.id)) return;
+    const cluster = [item];
+    assigned.add(item.id);
+
+    sorted.forEach((other) => {
+      if (assigned.has(other.id)) return;
+      const d = calculateDistanceMeters(item.lat, item.lon, other.lat, other.lon);
+      if (d <= 26) {
+        cluster.push(other);
+        assigned.add(other.id);
+      }
+    });
+
+    clusters.push(cluster);
   });
 
-  const dispersed = [];
-
-  groups.forEach((groupItems) => {
-    if (groupItems.length === 1) {
-      const it = groupItems[0];
-      dispersed.push({
-        ...it,
-        displayLat: it.lat,
-        displayLon: it.lon,
-        siblingCount: 1,
-        siblingItems: [it],
-      });
-    } else {
-      const count = groupItems.length;
-      // 반경 약 16m 원형으로 핀들을 분산 배치하여 겹침 없이 손가락 터치 가능하게 함
-      const radiusDeg = 0.00016;
-
-      groupItems.forEach((it, index) => {
-        const angle = (2 * Math.PI * index) / count - (Math.PI / 2);
-        const dLat = radiusDeg * Math.cos(angle);
-        const dLon = (radiusDeg * Math.sin(angle)) / Math.cos(it.lat * Math.PI / 180);
-
-        dispersed.push({
-          ...it,
-          displayLat: it.lat + dLat,
-          displayLon: it.lon + dLon,
-          isDispersed: true,
-          clusterIndex: index + 1,
-          siblingCount: count,
-          siblingItems: groupItems,
-        });
-      });
-    }
-  });
-
-  return dispersed;
+  return clusters;
 }
 
-// 전역 팝업 내부 버튼용 시설 선택 핸들러
-window.safemapSelectFacilityById = function(id) {
-  const target = state.facilities.find(f => f.id === id);
-  if (target) {
-    selectFacility(target, false);
+// 활성화된 스파이더파이어 접기 (원래 클러스터 핀으로 복귀)
+function collapseSpider() {
+  if (state.spiderMarkers && state.spiderMarkers.length > 0) {
+    state.spiderMarkers.forEach(s => {
+      if (s.marker) s.marker.setMap(null);
+    });
+    state.spiderMarkers = [];
   }
-};
+  if (state.spiderLines && state.spiderLines.length > 0) {
+    state.spiderLines.forEach(l => l.setMap(null));
+    state.spiderLines = [];
+  }
+  if (state.spiderCenterMarker) {
+    state.spiderCenterMarker.setMap(null);
+    state.spiderCenterMarker = null;
+  }
+  if (state.activeClusterMarker) {
+    state.activeClusterMarker.setVisible(true);
+    state.activeClusterMarker = null;
+  }
+  state.activeClusterId = null;
+  if (elements.clusterSelectionModal) {
+    elements.clusterSelectionModal.style.display = 'none';
+  }
+}
+
+// 밀집 핀 터치 시 인터랙티브 스파이더파이어 방사 확장
+function expandSpider(cluster, centerPos, clusterMarker) {
+  if (!cluster || cluster.length <= 1) return;
+
+  // 이미 이 클러스터가 열려있으면 접기 토글
+  if (state.activeClusterMarker === clusterMarker) {
+    collapseSpider();
+    return;
+  }
+
+  collapseSpider();
+  state.activeClusterMarker = clusterMarker;
+  state.activeClusterId = cluster[0].id;
+  clusterMarker.setVisible(false); // 확장 중에는 중심 클러스터 핀 숨김
+
+  // 중심점에 앵커 서클 마커 배치
+  state.spiderCenterMarker = new google.maps.Marker({
+    position: centerPos,
+    map: state.map,
+    zIndex: 200,
+    icon: {
+      path: google.maps.SymbolPath.CIRCLE,
+      scale: 5,
+      fillColor: '#3b82f6',
+      fillOpacity: 0.9,
+      strokeColor: '#ffffff',
+      strokeWeight: 2,
+    },
+    title: '밀집 시설 위치',
+  });
+
+  const count = cluster.length;
+  // 방사 거리: 약 36미터 (터치 간격 넉넉히 확보)
+  const radiusDeg = 0.00033;
+  const latCos = Math.max(0.1, Math.cos(centerPos.lat * Math.PI / 180));
+
+  cluster.forEach((item, index) => {
+    let angle;
+    if (count === 2) {
+      // 2개일 때는 대각선(10시 / 4시 방향)으로 자연스럽게 분산
+      angle = (index === 0) ? (-3 * Math.PI / 4) : (Math.PI / 4);
+    } else {
+      // 3개 이상일 때는 12시 방향부터 시계방향 등간격 원형 배치
+      angle = (2 * Math.PI * index) / count - (Math.PI / 2);
+    }
+
+    const sLat = centerPos.lat + radiusDeg * Math.cos(angle);
+    const sLon = centerPos.lng + (radiusDeg * Math.sin(angle)) / latCos;
+    const spiderPos = { lat: sLat, lng: sLon };
+
+    // 거미줄 연결선 (Polyline)
+    const legLine = new google.maps.Polyline({
+      path: [centerPos, spiderPos],
+      strokeColor: '#3b82f6',
+      strokeOpacity: 0.8,
+      strokeWeight: 2.2,
+      geodesic: true,
+      map: state.map,
+    });
+    state.spiderLines.push(legLine);
+
+    // 방사형으로 펼쳐진 개별 안전시설 핀
+    const isSelected = state.selectedFacilityId === item.id;
+    const spiderPin = new google.maps.Marker({
+      position: spiderPos,
+      map: state.map,
+      title: `[${item.categoryName}] ${item.name} (${item.distanceMeters}m)`,
+      zIndex: isSelected ? 600 : 500,
+      icon: createCustomPinIcon(item, item.isNearest, isSelected),
+      animation: google.maps.Animation.DROP,
+    });
+
+    const infoWindow = new google.maps.InfoWindow({
+      content: createInfoWindowContent(item, item.isNearest),
+    });
+
+    spiderPin.addListener('click', () => {
+      // 핀 클릭 시 스파이더를 닫지 않고 해당 기기를 선택하여 인포윈도우 오픈
+      selectFacility(item, false);
+    });
+
+    state.spiderMarkers.push({ marker: spiderPin, infoWindow, item, spiderPos });
+  });
+
+  // 상단 밀집 시설 퀵 선택 플로팅 카드 노출
+  if (elements.clusterSelectionModal && elements.clusterItemsContainer) {
+    const locTitle = cluster[0].org || cluster[0].buildAddress || '해당 위치';
+    elements.clusterTitle.textContent = `${locTitle} (${cluster.length}대 밀집)`;
+    elements.clusterItemsContainer.innerHTML = '';
+
+    cluster.forEach(item => {
+      const card = document.createElement('div');
+      const isSelected = state.selectedFacilityId === item.id;
+      card.className = `cluster-item-card ${isSelected ? 'selected' : ''}`;
+      card.dataset.id = item.id;
+
+      let catIcon = '⚡';
+      if (item.category === 'extinguisher') catIcon = '🧯';
+      if (item.category === 'hydrant') catIcon = '💧';
+
+      card.innerHTML = `
+        <div class="cluster-item-left">
+          <div class="cluster-item-name">${catIcon} ${item.name}</div>
+          <div class="cluster-item-place">🏢 ${item.buildPlace || item.buildAddress || '위치 정보 없음'}</div>
+        </div>
+        <div class="cluster-item-right">
+          <span class="cluster-item-dist">${item.distanceMeters}m</span>
+          <span class="cluster-item-btn">${isSelected ? '선택됨' : '선택'}</span>
+        </div>
+      `;
+
+      card.addEventListener('click', () => {
+        selectFacility(item, false);
+      });
+
+      elements.clusterItemsContainer.appendChild(card);
+    });
+
+    elements.clusterSelectionModal.style.display = 'flex';
+  }
+
+  showStatus(`🏢 밀집 시설 ${cluster.length}대가 펼쳐졌습니다. 핀이나 목록을 터치해 선택하세요.`, 2200);
+}
 
 function clearMarkers() {
+  collapseSpider();
   if (!state.map || !window.google) return;
   state.markers.forEach(m => m.setMap(null));
   state.markers = [];
@@ -894,36 +1045,71 @@ function renderMapObjects() {
     icon: createUserLocationIcon(),
   });
 
-  // 2. 겹침 방지(Spiderfier) 분산 좌표 적용 후 시설 마커 렌더링
-  const dispersedList = applyCoordinateDispersal(state.facilities);
+  // 2. 26m 이내 밀집 시설 물리적 거리 기반 클러스터링
+  const clusters = clusterFacilities(state.facilities);
 
-  dispersedList.forEach((item, index) => {
-    const isNearest = item.isNearest || (index === 0);
-    const isSelected = state.selectedFacilityId ? (state.selectedFacilityId === item.id) : isNearest;
+  clusters.forEach((cluster) => {
+    if (cluster.length === 1) {
+      // 단일 시설: 실제 정위치에 일반 핀 생성
+      const item = cluster[0];
+      const isNearest = item.isNearest;
+      const isSelected = state.selectedFacilityId ? (state.selectedFacilityId === item.id) : isNearest;
 
-    const marker = new google.maps.Marker({
-      position: { lat: item.displayLat, lng: item.displayLon },
-      map: state.map,
-      title: `[${item.categoryName}] ${item.name} (${item.distanceMeters}m)`,
-      zIndex: isNearest ? 100 : (50 - Math.min(index, 40)),
-      icon: createCustomPinIcon(item, isNearest, isSelected),
-    });
+      const marker = new google.maps.Marker({
+        position: { lat: item.lat, lng: item.lon },
+        map: state.map,
+        title: `[${item.categoryName}] ${item.name} (${item.distanceMeters}m)`,
+        zIndex: isNearest ? 100 : 50,
+        icon: createCustomPinIcon(item, isNearest, isSelected),
+      });
 
-    const infoWindow = new google.maps.InfoWindow({
-      content: createInfoWindowContent(item, isNearest),
-    });
+      const infoWindow = new google.maps.InfoWindow({
+        content: createInfoWindowContent(item, isNearest),
+      });
 
-    // 마커 호버/터치 시 최상단 레이어로 올리기
-    marker.addListener('mouseover', () => marker.setZIndex(9999));
-    marker.addListener('mouseout', () => marker.setZIndex(isNearest ? 100 : 50));
+      marker.addListener('click', () => {
+        collapseSpider();
+        selectFacility(item, false);
+      });
 
-    marker.addListener('click', () => {
-      marker.setZIndex(9999);
-      selectFacility(item, false);
-    });
+      state.markers.push(marker);
+      state.markersMap.set(item.id, { marker, infoWindow, item, isCluster: false });
+    } else {
+      // 복수 시설 (밀집): 중심점에 클러스터 핀 생성 (터치 시 스파이더파이어 방사 확장)
+      const isNearest = cluster.some(f => f.isNearest);
+      const centerLat = cluster.reduce((sum, f) => sum + f.lat, 0) / cluster.length;
+      const centerLon = cluster.reduce((sum, f) => sum + f.lon, 0) / cluster.length;
+      const centerPos = { lat: centerLat, lng: centerLon };
 
-    state.markers.push(marker);
-    state.markersMap.set(item.id, { marker, infoWindow, item });
+      const clusterMarker = new google.maps.Marker({
+        position: centerPos,
+        map: state.map,
+        title: `${cluster.length}개 안전시설 밀집 (터치하여 펼치기)`,
+        zIndex: isNearest ? 150 : 80,
+        icon: createClusterPinIcon(cluster, isNearest),
+      });
+
+      clusterMarker.addListener('click', () => {
+        expandSpider(cluster, centerPos, clusterMarker);
+      });
+
+      state.markers.push(clusterMarker);
+
+      // 클러스터 소속 개별 시설 등록
+      cluster.forEach(item => {
+        const infoWindow = new google.maps.InfoWindow({
+          content: createInfoWindowContent(item, item.isNearest),
+        });
+        state.markersMap.set(item.id, {
+          marker: clusterMarker,
+          infoWindow,
+          item,
+          isCluster: true,
+          cluster,
+          centerPos
+        });
+      });
+    }
   });
 
   // 3. 최단거리(또는 현재 선택된 시설) 유도선 (Polyline)
@@ -933,7 +1119,7 @@ function renderMapObjects() {
       path: [userPos, { lat: targetItem.lat, lng: targetItem.lon }],
       strokeColor: '#f59e0b',
       strokeOpacity: 0.9,
-      strokeWeight: 4.5,
+      strokeWeight: 4,
       geodesic: true,
       map: state.map,
     });
@@ -948,20 +1134,57 @@ function selectFacility(item, triggerFromList = false) {
   // 하단 메인 카드 동기화
   updateNearestCard(item);
 
-  // 지도 부드럽게 이동 및 줌인 (분산 좌표가 있으면 분산 좌표로 이동하여 핀 정면 응시)
-  const targetLat = item.displayLat || item.lat;
-  const targetLon = item.displayLon || item.lon;
-
-  if (state.map) {
-    state.map.panTo({ lat: targetLat, lng: targetLon });
-    if (state.map.getZoom() < 17) {
-      state.map.setZoom(17);
-    }
-  }
-
-  // 해당 마커 인포윈도우 오픈 & 핀 바운스 애니메이션
   const markerObj = state.markersMap.get(item.id);
-  if (markerObj) {
+
+  if (markerObj && markerObj.isCluster) {
+    // 밀집 시설에 속한 경우
+    if (state.activeClusterMarker !== markerObj.marker) {
+      // 해당 클러스터 스파이더가 아직 안 열려 있다면 펼치기
+      expandSpider(markerObj.cluster, markerObj.centerPos, markerObj.marker);
+    }
+
+    // 펼쳐진 스파이더 마커 중 해당 기기 마커 탐색
+    const spiderObj = state.spiderMarkers.find(s => s.item.id === item.id);
+    if (spiderObj) {
+      if (state.currentInfoWindow) {
+        state.currentInfoWindow.close();
+      }
+      spiderObj.marker.setZIndex(9999);
+      spiderObj.infoWindow.open(state.map, spiderObj.marker);
+      state.currentInfoWindow = spiderObj.infoWindow;
+
+      if (state.map) {
+        state.map.panTo(spiderObj.marker.getPosition());
+      }
+    }
+
+    // 스파이더 핀 선택 아이콘 강조 갱신
+    state.spiderMarkers.forEach(s => {
+      const isThisSelected = s.item.id === item.id;
+      s.marker.setIcon(createCustomPinIcon(s.item, s.item.isNearest, isThisSelected));
+      s.marker.setZIndex(isThisSelected ? 9999 : 500);
+    });
+
+    // 클러스터 팝업 모달 내 선택 스타일 동기화
+    if (elements.clusterItemsContainer) {
+      elements.clusterItemsContainer.querySelectorAll('.cluster-item-card').forEach(c => {
+        const isMatch = c.dataset.id === item.id;
+        c.classList.toggle('selected', isMatch);
+        const btn = c.querySelector('.cluster-item-btn');
+        if (btn) btn.textContent = isMatch ? '선택됨' : '선택';
+      });
+    }
+  } else if (markerObj) {
+    // 단일 시설인 경우: 스파이더 접고 해당 핀으로 포커스
+    collapseSpider();
+
+    if (state.map) {
+      state.map.panTo({ lat: item.lat, lng: item.lon });
+      if (state.map.getZoom() < 17) {
+        state.map.setZoom(17);
+      }
+    }
+
     if (state.currentInfoWindow) {
       state.currentInfoWindow.close();
     }
@@ -977,7 +1200,7 @@ function selectFacility(item, triggerFromList = false) {
     }
   }
 
-  // 유도선(Polyline) 갱신 (실제 건물 좌표로 연결)
+  // 유도선(Polyline) 갱신 (실제 건물/시설 좌표로 연결)
   if (state.map) {
     if (state.routePolyline) {
       state.routePolyline.setMap(null);
@@ -989,7 +1212,7 @@ function selectFacility(item, triggerFromList = false) {
       ],
       strokeColor: '#f59e0b',
       strokeOpacity: 0.9,
-      strokeWeight: 4.5,
+      strokeWeight: 4,
       geodesic: true,
       map: state.map,
     });
@@ -1334,6 +1557,13 @@ function bindEvents() {
   }
   if (elements.btnCurrentLocation) {
     elements.btnCurrentLocation.addEventListener('click', moveToRealGps);
+  }
+
+  // 밀집 시설 팝업 닫기 버튼
+  if (elements.btnCloseClusterModal) {
+    elements.btnCloseClusterModal.addEventListener('click', () => {
+      collapseSpider();
+    });
   }
 
   // 필터 칩 클릭

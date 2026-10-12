@@ -66,13 +66,13 @@
               <span class="chip-dot"></span>전체 <b id="countAll">0</b>
             </button>
             <button class="chip" data-category="aed" role="tab">
-              <span class="chip-icon">🫀</span>AED <b id="countAed">0</b>
+              <span class="legend-color-dot aed"></span><span class="chip-icon">⚡</span>AED <b id="countAed">0</b>
             </button>
             <button class="chip" data-category="extinguisher" role="tab">
-              <span class="chip-icon">🧯</span>소화기 <b id="countExt">0</b>
+              <span class="legend-color-dot ext"></span><span class="chip-icon">🧯</span>소화기 <b id="countExt">0</b>
             </button>
             <button class="chip" data-category="hydrant" role="tab">
-              <span class="chip-icon">🚒</span>소화전 <b id="countHyd">0</b>
+              <span class="legend-color-dot hyd"></span><span class="chip-icon">💧</span>소화전 <b id="countHyd">0</b>
             </button>
           </div>
           <label class="verified-pill" for="verifiedToggle" title="10년 경과 노후 소화기, 미점검/야간폐쇄 AED 제외">
@@ -81,13 +81,19 @@
             <span>안심검증</span>
           </label>
         </div>
+      </div>
 
-        <!-- 지도 핀 범례 (색상/아이콘별 기기 종류 안내) -->
-        <div class="map-legend-bar">
-          <div class="legend-chip aed"><span class="legend-color-dot aed"></span><span class="emoji">⚡</span> AED</div>
-          <div class="legend-chip ext"><span class="legend-color-dot ext"></span><span class="emoji">🧯</span> 소화기</div>
-          <div class="legend-chip hyd"><span class="legend-color-dot hyd"></span><span class="emoji">💧</span> 소화전</div>
-          <div class="legend-chip user"><span class="legend-color-dot user"></span><span class="emoji">📍</span> 내 위치</div>
+      <!-- 밀집 시설 선택 플로팅 카드 (클러스터 핀 터치 시 노출) -->
+      <div id="clusterSelectionModal" class="cluster-popup-modal" style="display: none;">
+        <div class="cluster-popup-header">
+          <div class="cluster-header-text">
+            <span class="cluster-icon">🏢</span>
+            <span id="clusterTitle">이 위치의 밀집 안전시설 (0대)</span>
+          </div>
+          <button id="btnCloseClusterModal" class="btn-close-cluster">&times;</button>
+        </div>
+        <div id="clusterItemsContainer" class="cluster-popup-list">
+          <!-- 기기 목록 동적 주입 -->
         </div>
       </div>
 
