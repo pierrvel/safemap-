@@ -51,6 +51,12 @@ const elements = {
   chips: document.querySelectorAll('.chip'),
   sdkStatusBadge: document.getElementById('sdkStatusBadge'),
 
+  // 위치 검색 및 GPS 버튼
+  locationSearchInput: document.getElementById('locationSearchInput'),
+  btnClearSearch: document.getElementById('btnClearSearch'),
+  btnSearchLocation: document.getElementById('btnSearchLocation'),
+  btnGpsDirect: document.getElementById('btnGpsDirect'),
+
   // 지도 및 컨트롤
   mainMapContainer: document.getElementById('mainMap'),
   btnCurrentLocation: document.getElementById('btnCurrentLocation'),
@@ -175,11 +181,12 @@ function initMapInstance() {
 
   state.map = new google.maps.Map(elements.mainMapContainer, mapOptions);
 
-  state.map.addListener('click', (e) => {
-    state.userLat = e.latLng.lat();
-    state.userLon = e.latLng.lng();
-    showStatus('선택하신 위치로 기준점을 이동했습니다.', 1800);
-    fetchFacilities();
+  // 지도 빈 곳 클릭 시 인포윈도우만 닫고, 사용자 기준 위치는 임의 변경되지 않도록 보호
+  state.map.addListener('click', () => {
+    if (state.currentInfoWindow) {
+      state.currentInfoWindow.close();
+      state.currentInfoWindow = null;
+    }
   });
 }
 
@@ -717,7 +724,7 @@ function createUserLocationIcon() {
   };
 }
 
-// 지도 인포윈도우 팝업 HTML 생성
+// 지도 인포윈도우 팝업 HTML 생성 (동일 건물 내 복수 기기 선택 탭 지원)
 function createInfoWindowContent(item, isNearest) {
   let catIcon = '⚡';
   let catText = '자동심장충격기 (AED)';
@@ -735,6 +742,31 @@ function createInfoWindowContent(item, isNearest) {
     catBg = '#eff6ff';
     catColor = '#2563eb';
   }
+
+  const siblingSection = (item.siblingItems && item.siblingItems.length > 1) ? `
+    <div style="margin-top: 8px; padding-top: 6px; border-top: 1px dashed #cbd5e1;">
+      <div style="font-size: 10px; font-weight: 800; color: #475569; margin-bottom: 5px;">
+        🏢 동일 건물/위치 안전시설 (${item.siblingItems.length}대 설치):
+      </div>
+      <div style="display: flex; flex-wrap: wrap; gap: 4px;">
+        ${item.siblingItems.map(sib => {
+          const isCurr = sib.id === item.id;
+          const icon = sib.category === 'aed' ? '⚡' : (sib.category === 'extinguisher' ? '🧯' : '💧');
+          const shortPlace = sib.buildPlace ? sib.buildPlace.replace(/^[0-9A-Za-z가-힣]+동\s*/, '').substring(0, 14) : sib.categoryName;
+          return `
+            <button onclick="window.safemapSelectFacilityById('${sib.id}')" 
+                    style="border: 1.5px solid ${isCurr ? '#2563eb' : '#cbd5e1'}; 
+                           background: ${isCurr ? '#eff6ff' : '#ffffff'}; 
+                           color: ${isCurr ? '#1e40af' : '#334155'}; 
+                           font-weight: 800; font-size: 10px; padding: 3px 6px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 2px;">
+              <span>${icon}</span>
+              <span>${shortPlace}</span>
+            </button>
+          `;
+        }).join('')}
+      </div>
+    </div>
+  ` : '';
 
   return `
     <div style="font-family: Pretendard, -apple-system, sans-serif; padding: 6px 4px; max-width: 250px; line-height: 1.45;">
@@ -772,9 +804,71 @@ function createInfoWindowContent(item, isNearest) {
           📞 통화
         </a>
       </div>
+
+      ${siblingSection}
     </div>
   `;
 }
+
+// 인접/동일 좌표 시설 자동 방사 분산 (Spiderfier) 알고리즘
+// 동일 건물 내 여러 핀이 완전 겹쳐서 클릭 불가능한 문제를 원천 해결
+function applyCoordinateDispersal(facilities) {
+  const groups = new Map();
+
+  facilities.forEach(item => {
+    // 소수점 4자리(~11m) 기준으로 동일 건물/스폿 그룹핑
+    const key = `${item.lat.toFixed(4)},${item.lon.toFixed(4)}`;
+    if (!groups.has(key)) {
+      groups.set(key, []);
+    }
+    groups.get(key).push(item);
+  });
+
+  const dispersed = [];
+
+  groups.forEach((groupItems) => {
+    if (groupItems.length === 1) {
+      const it = groupItems[0];
+      dispersed.push({
+        ...it,
+        displayLat: it.lat,
+        displayLon: it.lon,
+        siblingCount: 1,
+        siblingItems: [it],
+      });
+    } else {
+      const count = groupItems.length;
+      // 반경 약 16m 원형으로 핀들을 분산 배치하여 겹침 없이 손가락 터치 가능하게 함
+      const radiusDeg = 0.00016;
+
+      groupItems.forEach((it, index) => {
+        const angle = (2 * Math.PI * index) / count - (Math.PI / 2);
+        const dLat = radiusDeg * Math.cos(angle);
+        const dLon = (radiusDeg * Math.sin(angle)) / Math.cos(it.lat * Math.PI / 180);
+
+        dispersed.push({
+          ...it,
+          displayLat: it.lat + dLat,
+          displayLon: it.lon + dLon,
+          isDispersed: true,
+          clusterIndex: index + 1,
+          siblingCount: count,
+          siblingItems: groupItems,
+        });
+      });
+    }
+  });
+
+  return dispersed;
+}
+
+// 전역 팝업 내부 버튼용 시설 선택 핸들러
+window.safemapSelectFacilityById = function(id) {
+  const target = state.facilities.find(f => f.id === id);
+  if (target) {
+    selectFacility(target, false);
+  }
+};
 
 function clearMarkers() {
   if (!state.map || !window.google) return;
@@ -800,13 +894,15 @@ function renderMapObjects() {
     icon: createUserLocationIcon(),
   });
 
-  // 2. 시설 마커 렌더링 (각 기기별 아이콘과 텍스트가 표시된 SVG 핀)
-  state.facilities.forEach((item, index) => {
+  // 2. 겹침 방지(Spiderfier) 분산 좌표 적용 후 시설 마커 렌더링
+  const dispersedList = applyCoordinateDispersal(state.facilities);
+
+  dispersedList.forEach((item, index) => {
     const isNearest = item.isNearest || (index === 0);
     const isSelected = state.selectedFacilityId ? (state.selectedFacilityId === item.id) : isNearest;
 
     const marker = new google.maps.Marker({
-      position: { lat: item.lat, lng: item.lon },
+      position: { lat: item.displayLat, lng: item.displayLon },
       map: state.map,
       title: `[${item.categoryName}] ${item.name} (${item.distanceMeters}m)`,
       zIndex: isNearest ? 100 : (50 - Math.min(index, 40)),
@@ -817,7 +913,12 @@ function renderMapObjects() {
       content: createInfoWindowContent(item, isNearest),
     });
 
+    // 마커 호버/터치 시 최상단 레이어로 올리기
+    marker.addListener('mouseover', () => marker.setZIndex(9999));
+    marker.addListener('mouseout', () => marker.setZIndex(isNearest ? 100 : 50));
+
     marker.addListener('click', () => {
+      marker.setZIndex(9999);
       selectFacility(item, false);
     });
 
@@ -847,9 +948,12 @@ function selectFacility(item, triggerFromList = false) {
   // 하단 메인 카드 동기화
   updateNearestCard(item);
 
-  // 지도 부드럽게 이동 및 줌인 (건물 및 도로 상세 확인)
+  // 지도 부드럽게 이동 및 줌인 (분산 좌표가 있으면 분산 좌표로 이동하여 핀 정면 응시)
+  const targetLat = item.displayLat || item.lat;
+  const targetLon = item.displayLon || item.lon;
+
   if (state.map) {
-    state.map.panTo({ lat: item.lat, lng: item.lon });
+    state.map.panTo({ lat: targetLat, lng: targetLon });
     if (state.map.getZoom() < 17) {
       state.map.setZoom(17);
     }
@@ -861,6 +965,7 @@ function selectFacility(item, triggerFromList = false) {
     if (state.currentInfoWindow) {
       state.currentInfoWindow.close();
     }
+    markerObj.marker.setZIndex(9999);
     markerObj.infoWindow.open(state.map, markerObj.marker);
     state.currentInfoWindow = markerObj.infoWindow;
 
@@ -872,7 +977,7 @@ function selectFacility(item, triggerFromList = false) {
     }
   }
 
-  // 유도선(Polyline) 갱신
+  // 유도선(Polyline) 갱신 (실제 건물 좌표로 연결)
   if (state.map) {
     if (state.routePolyline) {
       state.routePolyline.setMap(null);
@@ -1088,10 +1193,149 @@ async function handleReportSubmit(e) {
 function openModal(modal) { modal.classList.add('active'); }
 function closeModal(modal) { modal.classList.remove('active'); }
 
+// 실제 GPS 위치로 이동 (헤더 버튼 & 플로팅 버튼 공통)
+function moveToRealGps() {
+  showStatus('🛰️ 실제 GPS 현위치 수신 중...');
+  if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        state.userLat = pos.coords.latitude;
+        state.userLon = pos.coords.longitude;
+        if (state.map) {
+          state.map.panTo({ lat: state.userLat, lng: state.userLon });
+          state.map.setZoom(17);
+        }
+        if (elements.locationSearchInput) {
+          elements.locationSearchInput.value = '';
+          if (elements.btnClearSearch) elements.btnClearSearch.style.display = 'none';
+        }
+        showStatus('📍 실제 GPS 현위치로 이동 완료', 2200);
+        fetchFacilities();
+      },
+      (err) => {
+        console.warn('GPS error:', err);
+        showStatus('GPS 위치 수신 실패: 기기의 위치 권한을 확인해 주세요.', 3000);
+      },
+      { timeout: 7000, enableHighAccuracy: true, maximumAge: 0 }
+    );
+  } else {
+    showStatus('현재 브라우저/기기가 GPS 위치 서비스를 지원하지 않습니다.', 2500);
+  }
+}
+
+// 장소/도로명/역명 검색으로 내 기준 위치 이동
+function searchAndMoveLocation(query) {
+  if (!query || !query.trim()) {
+    showStatus('검색할 장소나 도로명을 입력해 주세요.', 2000);
+    return;
+  }
+  const q = query.trim();
+  showStatus(`🔍 '${q}' 위치 검색 중...`);
+
+  const presetLocations = {
+    '서울시청': { lat: 37.5665, lon: 126.9780, name: '서울특별시청' },
+    '시청역': { lat: 37.5657, lon: 126.9769, name: '시청역 (1·2호선)' },
+    '광화문': { lat: 37.5714, lon: 126.9769, name: '광화문 세종대로' },
+    '강남역': { lat: 37.4979, lon: 127.0276, name: '강남역' },
+    '홍대입구역': { lat: 37.5575, lon: 126.9245, name: '홍대입구역' },
+    '여의도': { lat: 37.5216, lon: 126.9242, name: '여의도' },
+    '잠실역': { lat: 37.5133, lon: 127.1001, name: '잠실역' },
+    '종로': { lat: 37.5704, lon: 126.9922, name: '종로' },
+    '명동': { lat: 37.5636, lon: 126.9834, name: '명동' },
+  };
+
+  const foundPreset = Object.entries(presetLocations).find(([k]) => q.includes(k) || k.includes(q));
+
+  if (window.google && google.maps && google.maps.Geocoder) {
+    const geocoder = new google.maps.Geocoder();
+    geocoder.geocode({ address: q, region: 'KR' }, (results, status) => {
+      if (status === 'OK' && results && results[0]) {
+        const loc = results[0].geometry.location;
+        state.userLat = loc.lat();
+        state.userLon = loc.lng();
+
+        if (state.map) {
+          state.map.panTo({ lat: state.userLat, lng: state.userLon });
+          state.map.setZoom(17);
+        }
+
+        showStatus(`📍 ${results[0].formatted_address} 기준 안전시설 탐색`, 2500);
+        fetchFacilities();
+      } else if (foundPreset) {
+        state.userLat = foundPreset[1].lat;
+        state.userLon = foundPreset[1].lon;
+        if (state.map) {
+          state.map.panTo({ lat: state.userLat, lng: state.userLon });
+          state.map.setZoom(17);
+        }
+        showStatus(`📍 '${foundPreset[1].name}' 기준 안전시설 탐색`, 2500);
+        fetchFacilities();
+      } else {
+        showStatus(`'${q}' 검색 결과를 찾을 수 없습니다. 도로명이나 역명을 입력해 보세요.`, 3000);
+      }
+    });
+  } else if (foundPreset) {
+    state.userLat = foundPreset[1].lat;
+    state.userLon = foundPreset[1].lon;
+    if (state.map) {
+      state.map.panTo({ lat: state.userLat, lng: state.userLon });
+      state.map.setZoom(17);
+    }
+    showStatus(`📍 '${foundPreset[1].name}' 기준 안전시설 탐색`, 2500);
+    fetchFacilities();
+  } else {
+    showStatus(`'${q}' 검색에 실패했습니다. 다른 키워드로 검색해 주세요.`, 2500);
+  }
+}
+
 // ==========================================================
 // 8. 이벤트 바인딩
 // ==========================================================
 function bindEvents() {
+  // 위치 검색 실행 리스너
+  const executeSearch = () => {
+    if (elements.locationSearchInput) {
+      searchAndMoveLocation(elements.locationSearchInput.value);
+    }
+  };
+
+  if (elements.btnSearchLocation) {
+    elements.btnSearchLocation.addEventListener('click', executeSearch);
+  }
+
+  if (elements.locationSearchInput) {
+    elements.locationSearchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        executeSearch();
+      }
+    });
+
+    elements.locationSearchInput.addEventListener('input', (e) => {
+      if (elements.btnClearSearch) {
+        elements.btnClearSearch.style.display = e.target.value.trim() ? 'flex' : 'none';
+      }
+    });
+  }
+
+  if (elements.btnClearSearch) {
+    elements.btnClearSearch.addEventListener('click', () => {
+      if (elements.locationSearchInput) {
+        elements.locationSearchInput.value = '';
+        elements.locationSearchInput.focus();
+      }
+      elements.btnClearSearch.style.display = 'none';
+    });
+  }
+
+  // 실제 GPS 위치로 이동 (헤더 버튼 및 플로팅 FAB 공통 바인딩)
+  if (elements.btnGpsDirect) {
+    elements.btnGpsDirect.addEventListener('click', moveToRealGps);
+  }
+  if (elements.btnCurrentLocation) {
+    elements.btnCurrentLocation.addEventListener('click', moveToRealGps);
+  }
+
   // 필터 칩 클릭
   elements.chips.forEach(chip => {
     chip.addEventListener('click', () => {
@@ -1115,26 +1359,6 @@ function bindEvents() {
 
   // 위성/일반 레이어 전환
   elements.btnMapLayerToggle.addEventListener('click', toggleMapLayer);
-
-  // 내 GPS 위치 이동
-  elements.btnCurrentLocation.addEventListener('click', () => {
-    showStatus('GPS 현위치 확인 중...');
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          state.userLat = pos.coords.latitude;
-          state.userLon = pos.coords.longitude;
-          if (state.map) {
-            state.map.panTo({ lat: state.userLat, lng: state.userLon });
-          }
-          fetchFacilities();
-        },
-        (err) => {
-          showStatus('위치 수신 권한을 확인해 주세요.', 2200);
-        }
-      );
-    }
-  });
 
   // 주변 재검색
   elements.btnRefreshArea.addEventListener('click', () => {

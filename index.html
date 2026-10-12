@@ -44,6 +44,21 @@
           </div>
         </header>
 
+        <!-- 위치 검색창 & 실제 GPS 이동 버튼 -->
+        <div class="search-box-pill">
+          <div class="search-input-wrap">
+            <span class="search-icon">🔍</span>
+            <input type="text" id="locationSearchInput" class="search-input" placeholder="장소·도로명·역 검색 (예: 강남역, 시청역, 광화문)" autocomplete="off">
+            <button id="btnClearSearch" class="btn-clear-search" style="display: none;" title="검색어 지우기">&times;</button>
+          </div>
+          <button id="btnSearchLocation" class="btn-search-go" title="입력 위치로 이동">
+            <span>이동</span>
+          </button>
+          <button id="btnGpsDirect" class="btn-gps-direct" title="실제 GPS 위치로 이동">
+            <span>📍 내 GPS</span>
+          </button>
+        </div>
+
         <!-- 카테고리 필터 칩 & 안심 토글 바 -->
         <div class="filter-chips-row">
           <div class="chips-group" role="tablist">

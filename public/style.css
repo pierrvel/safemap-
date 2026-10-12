@@ -159,6 +159,107 @@ body, html {
   background: rgba(0, 0, 0, 0.05);
 }
 
+/* 상단 위치 검색 필드 & GPS 버튼 */
+.search-box-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 6px 5px 12px;
+  background: var(--glass-bg);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid var(--border-subtle);
+  border-radius: 30px;
+  box-shadow: var(--glass-shadow);
+}
+
+.search-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  position: relative;
+}
+
+.search-icon {
+  font-size: 0.85rem;
+  opacity: 0.6;
+  flex-shrink: 0;
+}
+
+.search-input {
+  width: 100%;
+  border: none;
+  background: transparent;
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  outline: none;
+}
+
+.search-input::placeholder {
+  color: #94a3b8;
+  font-weight: 500;
+  font-size: 0.78rem;
+}
+
+.btn-clear-search {
+  background: #cbd5e1;
+  color: #ffffff;
+  border: none;
+  border-radius: 50%;
+  width: 16px;
+  height: 16px;
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.btn-search-go {
+  background: #0f172a;
+  color: #ffffff;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-weight: 800;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: transform 0.1s, background 0.15s;
+}
+
+.btn-search-go:active {
+  transform: scale(0.94);
+}
+
+.btn-gps-direct {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  background: #eff6ff;
+  color: #2563eb;
+  border: 1px solid #bfdbfe;
+  padding: 6px 10px;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-weight: 800;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: transform 0.1s, background 0.15s;
+}
+
+.btn-gps-direct:active {
+  transform: scale(0.94);
+  background: #dbeafe;
+}
+
 /* 필터 칩 & 안심 토글 행 */
 .filter-chips-row {
   display: flex;
