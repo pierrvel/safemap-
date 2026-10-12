@@ -9,7 +9,10 @@ const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
+const staticDir = fs.existsSync(path.join(__dirname, 'dist'))
+  ? path.join(__dirname, 'dist')
+  : path.join(__dirname, 'public');
+app.use(express.static(staticDir));
 
 // 환경변수 기반 API 키 및 설정
 const getKakaoMapApiKey = () => process.env.KAKAO_MAP_API_KEY || '';
