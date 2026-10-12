@@ -1,10 +1,17 @@
 /**
  * 골든타임 세이프맵 (GoldenTime SafeMap)
- * 구글맵 기반 공공 안전시설 위치 데이터 전처리 및 최단경로 탐색 시스템
+ * Google Maps Platform API 공식 연동 & 공공 안전시설 최단거리 탐색 시스템
  */
 
 // 공공데이터포털 인증키 (국립중앙의료원 전국 AED 정보조회 서비스)
 const DATA_GO_KR_KEY = 'cHwaVtA5OSzBd8gpTWKh2vM7qNRMDW55vNxj0bnj5JgFoTv7ih74zb9sZR6Q788IQIxEIVSKgknbEPUN332gAQ%3D%3D';
+
+// URL 파라미터에서 Google Maps API 키 확인 (?key=AIzaSy... 또는 ?gkey=AIzaSy...)
+const urlParams = new URLSearchParams(window.location.search);
+const initialKeyFromUrl = urlParams.get('key') || urlParams.get('gkey') || '';
+if (initialKeyFromUrl) {
+  localStorage.setItem('google_maps_api_key', initialKeyFromUrl);
+}
 
 // 전역 상태
 const state = {
@@ -15,29 +22,37 @@ const state = {
   facilities: [],
   nearestFacility: null,
   stats: null,
+  
+  // Google Maps SDK 연동 상태
+  googleApiKey: localStorage.getItem('google_maps_api_key') || '',
+  activeEngine: 'tiles', // 'sdk' (Google Maps JS API) | 'tiles' (Google Maps Tile Engine)
   map: null,
   googleRoadTileLayer: null,
   googleSatTileLayer: null,
-  currentLayer: 'road', // 'road' | 'satellite'
+  currentTileLayer: 'road',
+  
+  // 마커 및 경로 객체
   markers: [],
-  nearestMarker: null,
   userMarker: null,
   routePolyline: null,
+  
+  // UI 상태
   isSheetCollapsed: false,
   userReports: JSON.parse(localStorage.getItem('safemap_user_reports') || '[]'),
 };
 
 // DOM 요소 캐시
 const elements = {
-  // Counts & Filter tabs
+  // 헤더 및 필터
   countAll: document.getElementById('countAll'),
   countAed: document.getElementById('countAed'),
   countExt: document.getElementById('countExt'),
   countHyd: document.getElementById('countHyd'),
   verifiedToggle: document.getElementById('verifiedToggle'),
   catTabs: document.querySelectorAll('.cat-tab'),
+  sdkStatusBadge: document.getElementById('sdkStatusBadge'),
 
-  // Map & Controls
+  // 지도 및 컨트롤
   mainMapContainer: document.getElementById('mainMap'),
   btnCurrentLocation: document.getElementById('btnCurrentLocation'),
   btnRefreshArea: document.getElementById('btnRefreshArea'),
@@ -49,7 +64,7 @@ const elements = {
   statusBanner: document.getElementById('statusBanner'),
   statusMessage: document.getElementById('statusMessage'),
 
-  // Bottom Sheet
+  // 하단 접이식 시트
   bottomSheet: document.getElementById('bottomSheet'),
   sheetHandle: document.getElementById('sheetHandle'),
   btnToggleSheet: document.getElementById('btnToggleSheet'),
@@ -61,7 +76,7 @@ const elements = {
   miniNearestPlace: document.getElementById('miniNearestPlace'),
   cardExpandableContent: document.getElementById('cardExpandableContent'),
 
-  // Nearest Card
+  // 최단거리 정보 카드
   nearestCard: document.getElementById('nearestCard'),
   nearestCategoryBadge: document.getElementById('nearestCategoryBadge'),
   nearestVerifiedBadge: document.getElementById('nearestVerifiedBadge'),
@@ -77,13 +92,13 @@ const elements = {
   btnCallManager: document.getElementById('btnCallManager'),
   btnReportIssue: document.getElementById('btnReportIssue'),
 
-  // List section
+  // 리스트 섹션
   listToggleHeader: document.getElementById('listToggleHeader'),
   listArrow: document.getElementById('listArrow'),
   facilityList: document.getElementById('facilityList'),
   totalListCount: document.getElementById('totalListCount'),
 
-  // Modals
+  // 모달
   preprocessingModal: document.getElementById('preprocessingModal'),
   reportModal: document.getElementById('reportModal'),
   safetyGuideModal: document.getElementById('safetyGuideModal'),
@@ -104,65 +119,151 @@ const elements = {
   reportFacilityId: document.getElementById('reportFacilityId'),
   reportFacilityName: document.getElementById('reportFacilityName'),
   reportDetails: document.getElementById('reportDetails'),
+
+  inputGoogleApiKey: document.getElementById('inputGoogleApiKey'),
+  btnSaveGoogleApiKey: document.getElementById('btnSaveGoogleApiKey'),
 };
 
 // ==========================================================
-// 1. 지도 초기화 (Google Maps 정밀 엔진)
+// 1. Google Maps Platform 엔진 초기화 (SDK & Tile 하이브리드)
 // ==========================================================
-function initGoogleMapEngine() {
-  if (state.map) return;
+async function initMapEngine() {
+  if (state.googleApiKey) {
+    elements.inputGoogleApiKey.value = state.googleApiKey;
+    try {
+      await loadGoogleMapsJavaScriptSDK(state.googleApiKey);
+      initGoogleSDKMap();
+      return;
+    } catch (err) {
+      console.warn('Google Maps SDK 로드 실패, 구글맵 타일 엔진으로 폴백합니다:', err.message);
+    }
+  }
 
-  // Leaflet 기반 구글맵 정밀 타일 엔진 초기화
-  state.map = L.map('mainMap', {
-    center: [state.userLat, state.userLon],
+  // API 키가 아직 없거나 SDK 로드 실패 시 구글맵 타일 엔진 실행
+  initGoogleTileMap();
+}
+
+// Google Maps JavaScript API (v3) 비동기 로더
+function loadGoogleMapsJavaScriptSDK(apiKey) {
+  return new Promise((resolve, reject) => {
+    if (window.google && window.google.maps) {
+      resolve();
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=geometry&callback=onGoogleMapsSDKReady`;
+    script.async = true;
+    script.defer = true;
+
+    window.onGoogleMapsSDKReady = () => {
+      resolve();
+    };
+
+    script.onerror = (e) => {
+      reject(new Error('Google Maps script error'));
+    };
+
+    document.head.appendChild(script);
+
+    setTimeout(() => {
+      if (!window.google || !window.google.maps) {
+        reject(new Error('Google Maps SDK load timeout'));
+      }
+    }, 5000);
+  });
+}
+
+// 정식 Google Maps JavaScript SDK 지도 생성
+function initGoogleSDKMap() {
+  state.activeEngine = 'sdk';
+  elements.sdkStatusBadge.textContent = 'Google Maps SDK';
+  elements.sdkStatusBadge.style.background = '#dbeafe';
+  elements.sdkStatusBadge.style.color = '#1d4ed8';
+
+  const mapOptions = {
+    center: { lat: state.userLat, lng: state.userLon },
     zoom: 17,
-    zoomControl: false, // 커스텀 제어
-    attributionControl: false,
-  });
+    mapTypeId: state.currentTileLayer === 'satellite' ? google.maps.MapTypeId.HYBRID : google.maps.MapTypeId.ROADMAP,
+    disableDefaultUI: true,
+    zoomControl: true,
+    // Google Maps Platform 솔루션 어트리뷰션
+    internalUsageAttributionIds: ['gmp_git_agentskills_v1'],
+  };
 
-  // 1. 구글맵 일반 도로 지도 타일 (Korean 한국어 기본)
-  state.googleRoadTileLayer = L.tileLayer('https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}&hl=ko', {
-    subdomains: ['0', '1', '2', '3'],
-    maxZoom: 20,
-    maxNativeZoom: 19
-  }).addTo(state.map);
+  state.map = new google.maps.Map(elements.mainMapContainer, mapOptions);
 
-  // 2. 구글맵 고화질 위성 하이브리드 지도 타일
-  state.googleSatTileLayer = L.tileLayer('https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}&hl=ko', {
-    subdomains: ['0', '1', '2', '3'],
-    maxZoom: 20,
-    maxNativeZoom: 19
-  });
-
-  // 우측 하단 줌 컨트롤
-  L.control.zoom({ position: 'bottomright' }).addTo(state.map);
-
-  // 지도 클릭 시 해당 지점으로 사용자 탐색 기준점 이동
-  state.map.on('click', (e) => {
-    state.userLat = e.latlng.lat;
-    state.userLon = e.latlng.lng;
+  state.map.addListener('click', (e) => {
+    state.userLat = e.latLng.lat();
+    state.userLon = e.latLng.lng();
     showStatus('선택하신 위치로 기준점을 이동했습니다.', 1800);
     fetchFacilities();
   });
 }
 
+// Google Maps 타일 엔진 지도 생성 (API 키 없이도 즉시 작동)
+function initGoogleTileMap() {
+  state.activeEngine = 'tiles';
+  elements.sdkStatusBadge.textContent = 'Google Maps';
+  elements.sdkStatusBadge.style.background = '#eff6ff';
+  elements.sdkStatusBadge.style.color = '#2563eb';
+
+  if (!state.map) {
+    state.map = L.map('mainMap', {
+      center: [state.userLat, state.userLon],
+      zoom: 17,
+      zoomControl: false,
+      attributionControl: false,
+    });
+
+    // 구글맵 한국어 도로 지도 타일
+    state.googleRoadTileLayer = L.tileLayer('https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}&hl=ko', {
+      subdomains: ['0', '1', '2', '3'],
+      maxZoom: 20,
+      maxNativeZoom: 19
+    }).addTo(state.map);
+
+    // 구글맵 하이브리드 위성 타일
+    state.googleSatTileLayer = L.tileLayer('https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}&hl=ko', {
+      subdomains: ['0', '1', '2', '3'],
+      maxZoom: 20,
+      maxNativeZoom: 19
+    });
+
+    L.control.zoom({ position: 'bottomright' }).addTo(state.map);
+
+    state.map.on('click', (e) => {
+      state.userLat = e.latlng.lat;
+      state.userLon = e.latlng.lng;
+      showStatus('선택하신 위치로 기준점을 이동했습니다.', 1800);
+      fetchFacilities();
+    });
+  }
+}
+
 // 일반/위성 지도 전환
 function toggleMapLayer() {
-  if (state.currentLayer === 'road') {
-    state.map.removeLayer(state.googleRoadTileLayer);
-    state.googleSatTileLayer.addTo(state.map);
-    state.currentLayer = 'satellite';
-    elements.mapLayerText.textContent = '일반지도';
+  if (state.activeEngine === 'sdk') {
+    const isSat = state.map.getMapTypeId() === google.maps.MapTypeId.HYBRID;
+    state.map.setMapTypeId(isSat ? google.maps.MapTypeId.ROADMAP : google.maps.MapTypeId.HYBRID);
+    elements.mapLayerText.textContent = isSat ? '위성지도' : '일반지도';
   } else {
-    state.map.removeLayer(state.googleSatTileLayer);
-    state.googleRoadTileLayer.addTo(state.map);
-    state.currentLayer = 'road';
-    elements.mapLayerText.textContent = '위성지도';
+    if (state.currentTileLayer === 'road') {
+      state.map.removeLayer(state.googleRoadTileLayer);
+      state.googleSatTileLayer.addTo(state.map);
+      state.currentTileLayer = 'satellite';
+      elements.mapLayerText.textContent = '일반지도';
+    } else {
+      state.map.removeLayer(state.googleSatTileLayer);
+      state.googleRoadTileLayer.addTo(state.map);
+      state.currentTileLayer = 'road';
+      elements.mapLayerText.textContent = '위성지도';
+    }
   }
 }
 
 // ==========================================================
-// 2. 하단 정보 카드 접기/펼치기 제어 (사용자 핵심 피드백)
+// 2. 하단 정보 카드 접기/펼치기 제어
 // ==========================================================
 function toggleBottomSheet(forceState) {
   if (typeof forceState === 'boolean') {
@@ -172,14 +273,12 @@ function toggleBottomSheet(forceState) {
   }
 
   if (state.isSheetCollapsed) {
-    // 카드 접기: 지도를 넓게 보기
     elements.bottomSheet.classList.add('collapsed');
     elements.toggleIcon.textContent = '▲';
     elements.toggleText.textContent = '상세정보 보기 (카드 펼치기)';
     elements.floatToggleIcon.textContent = '🔼';
     elements.floatToggleText.textContent = '카드 열기';
   } else {
-    // 카드 펼치기: 상세 정보 보기
     elements.bottomSheet.classList.remove('collapsed');
     elements.toggleIcon.textContent = '▼';
     elements.toggleText.textContent = '지도 크게 보기 (카드 접기)';
@@ -187,8 +286,7 @@ function toggleBottomSheet(forceState) {
     elements.floatToggleText.textContent = '카드 접기';
   }
 
-  // Leaflet 지도 크기 리프레시
-  if (state.map) {
+  if (state.activeEngine === 'tiles' && state.map) {
     setTimeout(() => state.map.invalidateSize(), 300);
   }
 }
@@ -198,7 +296,7 @@ function toggleBottomSheet(forceState) {
 // ==========================================================
 async function initApp() {
   bindEvents();
-  initGoogleMapEngine();
+  await initMapEngine();
 
   showStatus('GPS 현위치를 탐색하고 있습니다...');
 
@@ -207,7 +305,9 @@ async function initApp() {
       (pos) => {
         state.userLat = pos.coords.latitude;
         state.userLon = pos.coords.longitude;
-        if (state.map) {
+        if (state.activeEngine === 'sdk' && state.map) {
+          state.map.setCenter({ lat: state.userLat, lng: state.userLon });
+        } else if (state.activeEngine === 'tiles' && state.map) {
           state.map.setView([state.userLat, state.userLon], 17);
         }
         fetchFacilities();
@@ -395,7 +495,6 @@ async function fetchFacilities() {
 
   try {
     let data = null;
-    // 1) 백엔드 API 호출 시도
     try {
       const res = await fetch(`/api/facilities?lat=${state.userLat}&lon=${state.userLon}&category=${state.currentCategory}&verifiedOnly=${state.verifiedOnly}`, { signal: AbortSignal.timeout(2000) });
       if (res.ok) data = await res.json();
@@ -403,7 +502,6 @@ async function fetchFacilities() {
       data = null;
     }
 
-    // 2) GitHub Pages 정적 배포 모드인 경우 브라우저 직접 처리
     if (!data || !data.success) {
       data = await processClientSideData(state.userLat, state.userLon, state.currentCategory, state.verifiedOnly);
     }
@@ -604,19 +702,19 @@ function updateStatsModal(stats) {
 }
 
 // ==========================================================
-// 5. 지도 마커 및 최단거리 경로 렌더링
+// 5. 지도 마커 및 최단거리 경로 렌더링 (SDK / Tiles 공통)
 // ==========================================================
 function clearMarkers() {
-  if (!state.map) return;
-  state.markers.forEach(m => state.map.removeLayer(m));
-  state.markers = [];
-  if (state.userMarker) {
-    state.map.removeLayer(state.userMarker);
-    state.userMarker = null;
-  }
-  if (state.routePolyline) {
-    state.map.removeLayer(state.routePolyline);
-    state.routePolyline = null;
+  if (state.activeEngine === 'sdk' && state.map) {
+    state.markers.forEach(m => m.setMap(null));
+    state.markers = [];
+    if (state.userMarker) { state.userMarker.setMap(null); state.userMarker = null; }
+    if (state.routePolyline) { state.routePolyline.setMap(null); state.routePolyline = null; }
+  } else if (state.activeEngine === 'tiles' && state.map) {
+    state.markers.forEach(m => state.map.removeLayer(m));
+    state.markers = [];
+    if (state.userMarker) { state.map.removeLayer(state.userMarker); state.userMarker = null; }
+    if (state.routePolyline) { state.map.removeLayer(state.routePolyline); state.routePolyline = null; }
   }
 }
 
@@ -624,7 +722,95 @@ function renderMapObjects() {
   clearMarkers();
   if (!state.map) return;
 
-  // 1. 사용자 현위치 레이더 마커
+  if (state.activeEngine === 'sdk') {
+    renderGoogleSDKObjects();
+  } else {
+    renderGoogleTileObjects();
+  }
+}
+
+// 정식 Google Maps JavaScript SDK 렌더링
+function renderGoogleSDKObjects() {
+  const userPos = { lat: state.userLat, lng: state.userLon };
+
+  // 사용자 마커
+  state.userMarker = new google.maps.Marker({
+    position: userPos,
+    map: state.map,
+    title: '내 현재 위치',
+    zIndex: 999,
+    icon: {
+      path: google.maps.SymbolPath.CIRCLE,
+      scale: 9,
+      fillColor: '#2563eb',
+      fillOpacity: 1,
+      strokeColor: '#ffffff',
+      strokeWeight: 3,
+    }
+  });
+
+  // 시설 마커
+  state.facilities.forEach((item) => {
+    const isNearest = item.isNearest;
+    let color = '#ef4444';
+    let scale = 10;
+
+    if (item.category === 'extinguisher') color = '#f97316';
+    if (item.category === 'hydrant') color = '#2563eb';
+    if (isNearest) {
+      color = '#f59e0b';
+      scale = 15;
+    }
+
+    const marker = new google.maps.Marker({
+      position: { lat: item.lat, lng: item.lon },
+      map: state.map,
+      title: item.name,
+      zIndex: isNearest ? 100 : 10,
+      icon: {
+        path: google.maps.SymbolPath.CIRCLE,
+        scale: scale,
+        fillColor: color,
+        fillOpacity: 0.95,
+        strokeColor: '#ffffff',
+        strokeWeight: isNearest ? 4 : 2,
+      }
+    });
+
+    const infoWindow = new google.maps.InfoWindow({
+      content: `
+        <div style="font-family: Pretendard, sans-serif; padding: 4px;">
+          <strong style="font-size: 13px;">${item.name}</strong>
+          ${isNearest ? '<span style="background: #fef3c7; color: #b45309; font-size: 10px; font-weight: bold; padding: 2px 4px; border-radius: 4px; margin-left: 4px;">최단거리</span>' : ''}<br>
+          <span style="color: #dc2626; font-weight: bold; font-size: 12px;">거리: ${item.distanceMeters}m (${item.walkingTime})</span><br>
+          <span style="color: #1e3a8a; font-weight: bold; font-size: 11px;">🏢 ${item.buildPlace}</span>
+        </div>
+      `
+    });
+
+    marker.addListener('click', () => {
+      infoWindow.open(state.map, marker);
+      updateNearestCard(item);
+      toggleBottomSheet(false);
+    });
+
+    state.markers.push(marker);
+  });
+
+  // 최단거리 유도선
+  if (state.nearestFacility) {
+    state.routePolyline = new google.maps.Polyline({
+      path: [userPos, { lat: state.nearestFacility.lat, lng: state.nearestFacility.lon }],
+      strokeColor: '#f59e0b',
+      strokeOpacity: 0.9,
+      strokeWeight: 5,
+      map: state.map,
+    });
+  }
+}
+
+// Google Maps 타일 엔진 렌더링
+function renderGoogleTileObjects() {
   state.userMarker = L.circleMarker([state.userLat, state.userLon], {
     radius: 9,
     fillColor: '#2563eb',
@@ -633,16 +819,15 @@ function renderMapObjects() {
     fillOpacity: 1
   }).addTo(state.map).bindPopup('<strong>내 현재 위치</strong>');
 
-  // 2. 시설 마커 렌더링
   state.facilities.forEach((item) => {
     const isNearest = item.isNearest;
-    let color = '#ef4444'; // AED 빨강
+    let color = '#ef4444';
     let radius = 10;
 
-    if (item.category === 'extinguisher') color = '#f97316'; // 소화기 주황
-    if (item.category === 'hydrant') color = '#2563eb'; // 소화전 파랑
+    if (item.category === 'extinguisher') color = '#f97316';
+    if (item.category === 'hydrant') color = '#2563eb';
     if (isNearest) {
-      color = '#f59e0b'; // 최단거리 황금색
+      color = '#f59e0b';
       radius = 15;
     }
 
@@ -665,13 +850,12 @@ function renderMapObjects() {
 
     marker.on('click', () => {
       updateNearestCard(item);
-      toggleBottomSheet(false); // 마커 클릭 시 정보 카드 펼치기
+      toggleBottomSheet(false);
     });
 
     state.markers.push(marker);
   });
 
-  // 3. 최단거리 유도 안내선 (Polyline)
   if (state.nearestFacility) {
     state.routePolyline = L.polyline(
       [[state.userLat, state.userLon], [state.nearestFacility.lat, state.nearestFacility.lon]],
@@ -699,7 +883,6 @@ function updateNearestCard(item) {
     return;
   }
 
-  // 상단 뱃지
   elements.nearestCategoryBadge.textContent = item.categoryName;
   if (item.category === 'aed') {
     elements.nearestCategoryBadge.style.background = '#fee2e2';
@@ -737,7 +920,6 @@ function updateNearestCard(item) {
   elements.nearestOrg.textContent = `${item.org} / ${item.model || item.mfg}`;
   elements.nearestAge.textContent = `${item.age} (설치/등록: ${item.installYear || '정보 없음'})`;
 
-  // 슬림 미니바 동기화
   elements.miniNearestName.textContent = item.name;
   elements.miniNearestDist.textContent = `${item.distanceMeters}m`;
   elements.miniNearestPlace.textContent = `🏢 ${item.buildPlace}`;
@@ -777,7 +959,9 @@ function renderFacilityList(list) {
 
     div.addEventListener('click', () => {
       updateNearestCard(item);
-      if (state.map) {
+      if (state.activeEngine === 'sdk' && state.map) {
+        state.map.panTo({ lat: item.lat, lng: item.lon });
+      } else if (state.activeEngine === 'tiles' && state.map) {
         state.map.panTo([item.lat, item.lon]);
       }
     });
@@ -835,7 +1019,6 @@ function closeModal(modal) { modal.classList.remove('active'); }
 // 8. 이벤트 바인딩
 // ==========================================================
 function bindEvents() {
-  // 카테고리 탭 클릭
   elements.catTabs.forEach(tab => {
     tab.addEventListener('click', () => {
       elements.catTabs.forEach(t => {
@@ -849,13 +1032,11 @@ function bindEvents() {
     });
   });
 
-  // 안심 검증 토글
   elements.verifiedToggle.addEventListener('change', (e) => {
     state.verifiedOnly = e.target.checked;
     fetchFacilities();
   });
 
-  // 하단 카드 접기/펼치기 제어
   elements.btnToggleSheet.addEventListener('click', (e) => {
     e.stopPropagation();
     toggleBottomSheet();
@@ -864,16 +1045,14 @@ function bindEvents() {
     toggleBottomSheet();
   });
   elements.miniSummaryBar.addEventListener('click', () => {
-    toggleBottomSheet(false); // 펼치기
+    toggleBottomSheet(false);
   });
   elements.btnFloatToggleCard.addEventListener('click', () => {
     toggleBottomSheet();
   });
 
-  // 지도 레이어 전환 (일반 ↔ 위성)
   elements.btnMapLayerToggle.addEventListener('click', toggleMapLayer);
 
-  // 내 GPS 위치로 이동
   elements.btnCurrentLocation.addEventListener('click', () => {
     showStatus('GPS 현위치를 다시 측정합니다...');
     if (navigator.geolocation) {
@@ -881,7 +1060,9 @@ function bindEvents() {
         (pos) => {
           state.userLat = pos.coords.latitude;
           state.userLon = pos.coords.longitude;
-          if (state.map) {
+          if (state.activeEngine === 'sdk' && state.map) {
+            state.map.panTo({ lat: state.userLat, lng: state.userLon });
+          } else if (state.activeEngine === 'tiles' && state.map) {
             state.map.setView([state.userLat, state.userLon], 17);
           }
           fetchFacilities();
@@ -893,12 +1074,10 @@ function bindEvents() {
     }
   });
 
-  // 주변 재검색
   elements.btnRefreshArea.addEventListener('click', () => {
     fetchFacilities();
   });
 
-  // 시설 리스트 아코디언 토글
   elements.listToggleHeader.addEventListener('click', () => {
     const list = elements.facilityList;
     if (list.style.display === 'none') {
@@ -910,12 +1089,10 @@ function bindEvents() {
     }
   });
 
-  // 헤더 모달 버튼들
   elements.btnPreprocessingReport.addEventListener('click', () => openModal(elements.preprocessingModal));
   elements.btnSafetyGuide.addEventListener('click', () => openModal(elements.safetyGuideModal));
   elements.btnSettings.addEventListener('click', () => openModal(elements.settingsModal));
 
-  // 모달 닫기
   document.querySelectorAll('.close-modal').forEach(btn => {
     btn.addEventListener('click', (e) => {
       const modal = e.target.closest('.modal-overlay');
@@ -929,10 +1106,8 @@ function bindEvents() {
     });
   });
 
-  // 제보 폼 제출
   elements.reportForm.addEventListener('submit', handleReportSubmit);
 
-  // CPR / 소화기 가이드 탭 전환
   document.querySelectorAll('.guide-tab-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       document.querySelectorAll('.guide-tab-btn').forEach(b => b.classList.remove('active'));
@@ -941,6 +1116,19 @@ function bindEvents() {
       document.getElementById('guideCpr').classList.toggle('active', tab === 'cpr');
       document.getElementById('guideFire').classList.toggle('active', tab === 'fire');
     });
+  });
+
+  // Google Maps API 키 저장 및 SDK 활성화
+  elements.btnSaveGoogleApiKey.addEventListener('click', () => {
+    const key = elements.inputGoogleApiKey.value.trim();
+    if (!key) {
+      alert('API 키를 입력해 주세요.');
+      return;
+    }
+    state.googleApiKey = key;
+    localStorage.setItem('google_maps_api_key', key);
+    alert('Google Maps API 키가 저장되었습니다! 정식 SDK로 페이지를 새로고침합니다.');
+    window.location.search = `?key=${key}`;
   });
 }
 

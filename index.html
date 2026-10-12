@@ -15,7 +15,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@400;600;700;800;900&display=swap" rel="stylesheet">
 
-  <!-- Leaflet Core -->
+  <!-- Leaflet Core (Fallback & Tile Support) -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 </head>
@@ -28,7 +28,7 @@
         <div class="header-brand">
           <span class="emergency-badge pulse-dot"></span>
           <h1 class="header-title">골든타임 세이프맵</h1>
-          <span class="sub-title">구글 지도</span>
+          <span class="sub-title" id="sdkStatusBadge">Google Maps</span>
         </div>
         <div class="header-actions">
           <button id="btnPreprocessingReport" class="icon-btn" title="데이터 전처리 분석 리포트">
@@ -39,8 +39,9 @@
             <span class="icon">🩺</span>
             <span class="btn-text">CPR 가이드</span>
           </button>
-          <button id="btnSettings" class="icon-btn" title="지도 및 API 설정">
+          <button id="btnSettings" class="icon-btn" title="구글맵 API 및 시스템 설정">
             <span class="icon">⚙️</span>
+            <span class="btn-text">API 설정</span>
           </button>
         </div>
       </div>
@@ -80,9 +81,9 @@
       </div>
     </header>
 
-    <!-- 지도 영역 (화면 전체 차지) -->
+    <!-- 지도 영역 (전체 화면) -->
     <main class="map-wrapper">
-      <!-- 구글맵 지도 컨테이너 -->
+      <!-- 메인 맵 컨테이너 (Google Maps JavaScript SDK / Tile Engine 공용) -->
       <div id="mainMap" class="map-view"></div>
 
       <!-- 지도 위 플로팅 컨트롤 -->
@@ -115,7 +116,6 @@
 
     <!-- 하단 접이식 긴급 대응 정보 카드 -->
     <section class="bottom-sheet" id="bottomSheet">
-      <!-- 상단 손잡이 & 명시적인 접기/펼치기 제어 헤더 -->
       <div class="sheet-handle-bar" id="sheetHandle">
         <span class="handle-bar"></span>
         <div class="sheet-toggle-header">
@@ -126,7 +126,7 @@
         </div>
       </div>
 
-      <!-- 접혔을 때 보이는 슬림 요약 바 (화면을 가리지 않음!) -->
+      <!-- 접혔을 때 보이는 슬림 요약 바 -->
       <div class="mini-summary-bar" id="miniSummaryBar" style="display: none;">
         <div class="mini-left">
           <span class="badge gold-badge mini-badge">⚡ 최단거리</span>
@@ -141,7 +141,6 @@
 
       <!-- 펼쳐졌을 때 보이는 상세 카드 -->
       <div class="card-expandable-content" id="cardExpandableContent">
-        <!-- 가장 가까운 장비 긴급 카드 -->
         <div class="nearest-card" id="nearestCard">
           <div class="nearest-header">
             <div class="badge-row">
@@ -393,30 +392,41 @@
       </div>
     </div>
 
-    <!-- 모달 4: 설정 모달 -->
+    <!-- 모달 4: 설정 모달 (Google Maps Platform API 연동) -->
     <div id="settingsModal" class="modal-overlay">
       <div class="modal-content">
         <div class="modal-header">
-          <h3>⚙️ 시스템 & 지도 설정</h3>
+          <h3>⚙️ Google Maps Platform & API 설정</h3>
           <button class="close-modal">&times;</button>
         </div>
         <div class="modal-body">
           <div class="form-group">
-            <label>Google Maps 레이어 상태</label>
-            <div class="api-status-box">
-              <span class="status-indicator-green"></span>
-              <span>구글맵(Google Maps) 정밀 타일 레이어 활성화됨</span>
-            </div>
-            <small class="help-text">구글맵 공식 타일 엔진을 직접 렌더링하여 API 키 없이도 국내 도로명과 건물이 선명하게 로드됩니다.</small>
+            <label>Google Maps API Key 등록</label>
+            <input type="text" id="inputGoogleApiKey" placeholder="AIzaSy... (구글맵 API 키를 입력하세요)" class="form-control">
+            <small class="help-text">
+              입력하신 키는 브라우저에 안전하게 저장되며, 정식 <strong>Google Maps JavaScript SDK (v3)</strong>로 전환됩니다.
+            </small>
+            <button id="btnSaveGoogleApiKey" class="submit-btn" style="margin-top: 8px;">구글맵 API 키 저장 및 SDK 적용</button>
           </div>
 
-          <hr style="margin: 20px 0; border: none; border-top: 1px solid #e5e7eb;">
+          <div class="analysis-box" style="margin-top: 14px;">
+            <h4>💡 Google Maps API 키 발급 안내</h4>
+            <p style="font-size: 12px; color: #475569; margin-bottom: 6px;">
+              구글 계정만 있으면 신용카드 등록 없이 30초 만에 테스트용 키를 발급받으실 수 있습니다:
+            </p>
+            <ul>
+              <li><strong>무료 프로토타입용:</strong> <a href="https://mapsplatform.google.com/maps-demo-key" target="_blank" style="color: #2563eb; font-weight: bold;">Google Maps Demo Key 발급받기 (카드 불필요)</a></li>
+              <li><strong>정식 프로젝트용:</strong> <a href="https://console.cloud.google.com/google/maps-apis/credentials" target="_blank" style="color: #2563eb; font-weight: bold;">Google Cloud Console 키 생성하기</a></li>
+            </ul>
+          </div>
+
+          <hr style="margin: 16px 0; border: none; border-top: 1px solid #e5e7eb;">
 
           <div class="form-group">
             <label>공공데이터 API 상태</label>
             <div class="api-status-box">
               <span class="status-indicator-green"></span>
-              <span>국립중앙의료원 AED 실시간 API 정상 연동</span>
+              <span>국립중앙의료원 AED 실시간 API 연동 완료</span>
             </div>
           </div>
         </div>
