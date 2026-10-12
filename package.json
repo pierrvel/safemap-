@@ -1,0 +1,14 @@
+{
+  "name": "emergency-facility-finder",
+  "version": "1.0.0",
+  "description": "공공 안전시설 위치 데이터 전처리와 최단경로 분석을 통한 응급시설 탐색 시스템",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.21.2"
+  }
+}
