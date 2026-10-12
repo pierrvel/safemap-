@@ -38,8 +38,8 @@
             <button id="btnSafetyGuide" class="tool-btn" title="응급 처치 가이드">
               <span>🩺</span>
             </button>
-            <button id="btnSettings" class="tool-btn" title="API 설정">
-              <span>⚙️</span>
+            <button id="btnSettings" class="tool-btn" title="시스템 정보">
+              <span>ℹ️</span>
             </button>
           </div>
         </header>
@@ -447,29 +447,41 @@
       </div>
     </div>
 
-    <!-- 모달 4: 설정 모달 -->
+    <!-- 모달 4: 시스템 정보 모달 -->
     <div id="settingsModal" class="modal-overlay">
       <div class="modal-card">
         <div class="modal-top">
-          <h3>⚙️ 시스템 & API 설정</h3>
+          <h3>ℹ️ 시스템 연동 정보</h3>
           <button class="close-modal">&times;</button>
         </div>
         <div class="modal-scroll">
-          <div class="form-group">
-            <label>Google Maps API Key</label>
-            <input type="text" id="inputGoogleApiKey" class="input-text">
-            <button id="btnSaveGoogleApiKey" class="btn-submit" style="margin-top: 8px;">키 저장 및 재적용</button>
+          <div class="status-box" style="margin-top: 4px;">
+            <div class="status-row" style="margin-bottom: 12px; align-items: flex-start;">
+              <span class="dot-green" style="margin-top: 4px;"></span>
+              <div>
+                <strong>Google Maps Platform 정식 SDK</strong>
+                <p style="font-size: 12px; color: #64748b; margin: 2px 0 0 0;">정식 SDK 및 실시간 보행자 Directions 길안내 연동 완료</p>
+              </div>
+            </div>
+            <div class="status-row" style="margin-bottom: 12px; align-items: flex-start;">
+              <span class="dot-green" style="margin-top: 4px;"></span>
+              <div>
+                <strong>국립중앙의료원 전국 AED 데이터</strong>
+                <p style="font-size: 12px; color: #64748b; margin: 2px 0 0 0;">공공데이터포털 실시간 API 서버 보안 프록시 연동 완료</p>
+              </div>
+            </div>
+            <div class="status-row" style="align-items: flex-start;">
+              <span class="dot-green" style="margin-top: 4px;"></span>
+              <div>
+                <strong>보안 환경변수 관리 시스템</strong>
+                <p style="font-size: 12px; color: #64748b; margin: 2px 0 0 0;">모든 핵심 인증키가 Vercel Environment Variables로 안전하게 격리 보호됨</p>
+              </div>
+            </div>
           </div>
 
-          <div class="status-box">
-            <div class="status-row">
-              <span class="dot-green"></span>
-              <strong>Google Maps Platform SDK 활성화됨</strong>
-            </div>
-            <div class="status-row">
-              <span class="dot-green"></span>
-              <strong>국립중앙의료원 전국 AED API 실시간 연동됨</strong>
-            </div>
+          <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px; margin-top: 16px; font-size: 13px; color: #475569; line-height: 1.6;">
+            🛡️ <strong>보안 및 운영 안내</strong><br>
+            서비스 운영에 필요한 모든 API 키와 인증 정보는 클라이언트에 직접 노출되지 않으며, 서버 환경변수(Vercel)를 통해 안전하게 자동 주입됩니다.
           </div>
         </div>
       </div>

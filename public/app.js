@@ -3,14 +3,9 @@
  * 미니멀 클린 UX/UI & Google Maps Platform 정식 SDK 연동
  */
 
-// 환경설정 및 API 키 동적 로드 (코드 내 직접 하드코딩 제거)
-// URL 파라미터(?key=...) 또는 브라우저 로컬 저장소 값 우선 확인
+// 환경설정 및 API 키 동적 로드 (Vercel 환경변수 /api/config 연동)
 const urlParams = new URLSearchParams(window.location.search);
 const keyFromUrl = urlParams.get('key') || urlParams.get('gkey');
-const activeGoogleKey = keyFromUrl || localStorage.getItem('google_maps_api_key') || '';
-if (keyFromUrl) {
-  localStorage.setItem('google_maps_api_key', keyFromUrl);
-}
 
 // 전역 상태
 const state = {
@@ -22,7 +17,7 @@ const state = {
   nearestFacility: null,
   stats: null,
   
-  googleApiKey: activeGoogleKey,
+  googleApiKey: keyFromUrl || '',
   map: null,
   isSatelliteMode: false,
   
@@ -144,9 +139,6 @@ const elements = {
   reportFacilityId: document.getElementById('reportFacilityId'),
   reportFacilityName: document.getElementById('reportFacilityName'),
   reportDetails: document.getElementById('reportDetails'),
-
-  inputGoogleApiKey: document.getElementById('inputGoogleApiKey'),
-  btnSaveGoogleApiKey: document.getElementById('btnSaveGoogleApiKey'),
 };
 
 // ==========================================================
@@ -168,14 +160,11 @@ async function loadServerConfig() {
     console.warn('Config fetch warning:', e);
   }
 
-  // URL 파라미터가 명시된 경우 최우선 적용 (?key=...)
+  // URL 디버그 파라미터가 명시된 경우 보조 지원 (?key=...)
   const urlParams = new URLSearchParams(window.location.search);
   const keyFromUrl = urlParams.get('key') || urlParams.get('gkey');
   if (keyFromUrl) {
     state.googleApiKey = keyFromUrl;
-    localStorage.setItem('google_maps_api_key', keyFromUrl);
-  } else if (!state.googleApiKey) {
-    state.googleApiKey = localStorage.getItem('google_maps_api_key') || '';
   }
 }
 
@@ -187,7 +176,7 @@ function loadGoogleMapsSDK() {
     }
 
     if (!state.googleApiKey) {
-      reject(new Error('Google Maps API 키가 설정되지 않았습니다. 우측 상단 설정(⚙️) 또는 환경변수(GOOGLE_MAPS_API_KEY)를 등록해주세요.'));
+      reject(new Error('Google Maps API 키가 로드되지 않았습니다. 서버 환경변수(GOOGLE_MAPS_API_KEY)를 확인해 주세요.'));
       return;
     }
 
@@ -283,17 +272,17 @@ function renderMapFallbackNotice(errorMessage) {
       <div style="width: 64px; height: 64px; border-radius: 50%; background: #eff6ff; display: flex; align-items: center; justify-content: center; font-size: 32px; margin-bottom: 16px; box-shadow: 0 4px 12px rgba(37,99,235,0.12);">🗺️</div>
       <h3 style="font-size: 19px; font-weight: 700; color: #1e293b; margin: 0 0 8px 0;">Google Maps 활성화 대기 중</h3>
       <p style="font-size: 14px; max-width: 380px; line-height: 1.6; color: #64748b; margin: 0 0 20px 0;">
-        Vercel 대시보드에서 <strong>GOOGLE_MAPS_API_KEY</strong> 환경변수를 등록하시거나, 아래 버튼을 눌러 API 키를 설정하시면 지도가 즉시 활성화됩니다.
+        서버 환경변수(GOOGLE_MAPS_API_KEY) 확인 및 지도 초기화를 진행 중입니다. 잠시 후 새로고침해 주세요.
       </p>
-      <button id="btnOpenKeyModalDirect" style="padding: 11px 22px; background: #2563eb; color: #fff; border: none; border-radius: 12px; font-weight: 600; font-size: 14px; cursor: pointer; box-shadow: 0 4px 12px rgba(37,99,235,0.25); transition: background 0.2s;">
-        ⚙️ Google Maps API 키 설정하기
+      <button id="btnReloadMapDirect" style="padding: 11px 22px; background: #2563eb; color: #fff; border: none; border-radius: 12px; font-weight: 600; font-size: 14px; cursor: pointer; box-shadow: 0 4px 12px rgba(37,99,235,0.25); transition: background 0.2s;">
+        🔄 새로고침
       </button>
     </div>
   `;
-  const btn = document.getElementById('btnOpenKeyModalDirect');
-  if (btn && elements.settingsModal) {
+  const btn = document.getElementById('btnReloadMapDirect');
+  if (btn) {
     btn.addEventListener('click', () => {
-      openModal(elements.settingsModal);
+      window.location.reload();
     });
   }
 }
@@ -306,9 +295,6 @@ async function initApp() {
 
   // 서버 환경변수(/api/config)로부터 키 로드
   await loadServerConfig();
-  if (elements.inputGoogleApiKey) {
-    elements.inputGoogleApiKey.value = state.googleApiKey || '';
-  }
 
   showStatus('안전지도 로딩 중...');
 
@@ -2145,19 +2131,6 @@ function bindEvents() {
       document.getElementById('guideCpr').classList.toggle('active', tab === 'cpr');
       document.getElementById('guideFire').classList.toggle('active', tab === 'fire');
     });
-  });
-
-  // Google Maps API 키 저장
-  elements.btnSaveGoogleApiKey.addEventListener('click', () => {
-    const key = elements.inputGoogleApiKey.value.trim();
-    if (!key) {
-      alert('API 키를 입력해 주세요.');
-      return;
-    }
-    state.googleApiKey = key;
-    localStorage.setItem('google_maps_api_key', key);
-    alert('Google Maps API 키가 저장되었습니다!');
-    window.location.search = `?key=${key}`;
   });
 }
 
