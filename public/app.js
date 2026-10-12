@@ -30,6 +30,8 @@ const state = {
   isSatelliteMode: false,
   
   markers: [],
+  markersMap: new Map(),
+  selectedFacilityId: null,
   userMarker: null,
   routePolyline: null,
   currentInfoWindow: null,
@@ -627,10 +629,158 @@ function updateStatsModal(stats) {
 // ==========================================================
 // 5. Google Maps 공식 마커 및 최단거리 경로 렌더링
 // ==========================================================
+// ==========================================================
+// 5. Google Maps 공식 마커 & 커스텀 SVG 핀 렌더링
+// ==========================================================
+
+// 기기 종류별 고해상도 SVG 핀 아이콘 생성 (AED: 적색+⚡, 소화기: 주황+🧯, 소화전: 청색+💧)
+function createCustomPinIcon(item, isNearest, isSelected) {
+  let bgColor = '#ef4444'; // AED Red
+  let iconEmoji = '⚡';
+  let catText = 'AED';
+
+  if (item.category === 'extinguisher') {
+    bgColor = '#f97316'; // 소화기 Orange
+    iconEmoji = '🧯';
+    catText = '소화기';
+  } else if (item.category === 'hydrant') {
+    bgColor = '#2563eb'; // 소화전 Blue
+    iconEmoji = '💧';
+    catText = '소화전';
+  }
+
+  const strokeColor = isSelected ? '#2563eb' : (isNearest ? '#f59e0b' : '#ffffff');
+  const strokeWidth = isSelected ? 4 : (isNearest ? 3.5 : 2);
+  const scale = isNearest || isSelected ? 1.15 : 1.0;
+
+  const w = Math.round(48 * scale);
+  const h = Math.round(58 * scale);
+
+  const goldHalo = isNearest ? `<circle cx="24" cy="22" r="21" fill="none" stroke="#f59e0b" stroke-width="3" stroke-dasharray="3,2" />` : '';
+
+  const svg = `
+  <svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 48 58">
+    <defs>
+      <filter id="p-shadow" x="-30%" y="-20%" width="160%" height="150%">
+        <feDropShadow dx="0" dy="2.5" stdDeviation="2.5" flood-color="#000000" flood-opacity="0.35"/>
+      </filter>
+    </defs>
+    ${goldHalo}
+    <!-- 핀 본체 (물방울형 포인터) -->
+    <path d="M 24 2 C 13 2, 4 11, 4 22 C 4 35, 24 55, 24 55 C 24 55, 44 35, 44 22 C 44 11, 35 2, 24 2 Z"
+          fill="${bgColor}" stroke="${strokeColor}" stroke-width="${strokeWidth}" filter="url(#p-shadow)" />
+    <!-- 내부 흰색 원형 디스크 -->
+    <circle cx="24" cy="20" r="12.5" fill="#ffffff" />
+    <!-- 이모지 심볼 아이콘 -->
+    <text x="24" y="25" font-size="13" text-anchor="middle" font-family="'Apple Color Emoji','Segoe UI Emoji',sans-serif">${iconEmoji}</text>
+    <!-- 하단 텍스트 명칭 알약 배지 -->
+    <rect x="7" y="38" width="34" height="13" rx="6.5" fill="${bgColor}" stroke="#ffffff" stroke-width="1.2" />
+    <text x="24" y="47.5" font-size="8.5" font-weight="900" fill="#ffffff" text-anchor="middle" font-family="'Pretendard', sans-serif">${catText}</text>
+  </svg>`.trim();
+
+  return {
+    url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg),
+    scaledSize: new google.maps.Size(w, h),
+    anchor: new google.maps.Point(w / 2, h - Math.round(3 * scale)),
+  };
+}
+
+// 사용자 현위치 레이더 펄스 핀 아이콘
+function createUserLocationIcon() {
+  const w = 44;
+  const h = 54;
+  const svg = `
+  <svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 44 54">
+    <defs>
+      <filter id="u-shadow" x="-30%" y="-20%" width="160%" height="150%">
+        <feDropShadow dx="0" dy="3" stdDeviation="2.5" flood-color="#000000" flood-opacity="0.32"/>
+      </filter>
+    </defs>
+    <!-- 레이더 펄스 외곽 링 -->
+    <circle cx="22" cy="20" r="18" fill="#3b82f6" fill-opacity="0.22" />
+    <!-- 핀 본체 -->
+    <path d="M 22 2 C 12 2, 4 10, 4 20 C 4 32, 22 51, 22 51 C 22 51, 40 32, 40 20 C 40 10, 32 2, 22 2 Z"
+          fill="#1d4ed8" stroke="#ffffff" stroke-width="2.5" filter="url(#u-shadow)" />
+    <!-- 중앙 타겟 조준원 -->
+    <circle cx="22" cy="19" r="11" fill="#ffffff" />
+    <circle cx="22" cy="19" r="6" fill="#2563eb" />
+    <circle cx="22" cy="19" r="2.5" fill="#ffffff" />
+    <!-- 내 위치 텍스트 알약 -->
+    <rect x="6" y="37" width="32" height="12" rx="6" fill="#1d4ed8" stroke="#ffffff" stroke-width="1" />
+    <text x="22" y="46" font-size="7.5" font-weight="900" fill="#ffffff" text-anchor="middle" font-family="'Pretendard', sans-serif">내 위치</text>
+  </svg>`.trim();
+
+  return {
+    url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg),
+    scaledSize: new google.maps.Size(w, h),
+    anchor: new google.maps.Point(w / 2, h - 3),
+  };
+}
+
+// 지도 인포윈도우 팝업 HTML 생성
+function createInfoWindowContent(item, isNearest) {
+  let catIcon = '⚡';
+  let catText = '자동심장충격기 (AED)';
+  let catBg = '#fee2e2';
+  let catColor = '#dc2626';
+
+  if (item.category === 'extinguisher') {
+    catIcon = '🧯';
+    catText = '소화기 (소화시설)';
+    catBg = '#ffedd5';
+    catColor = '#ea580c';
+  } else if (item.category === 'hydrant') {
+    catIcon = '💧';
+    catText = '소화전 (소방용수)';
+    catBg = '#eff6ff';
+    catColor = '#2563eb';
+  }
+
+  return `
+    <div style="font-family: Pretendard, -apple-system, sans-serif; padding: 6px 4px; max-width: 250px; line-height: 1.45;">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; gap: 6px;">
+        <span style="font-size: 10px; font-weight: 800; padding: 2px 7px; border-radius: 6px; background: ${catBg}; color: ${catColor};">
+          ${catIcon} ${catText}
+        </span>
+        ${isNearest ? '<span style="font-size: 10px; font-weight: 900; color: #b45309; background: #fef3c7; padding: 2px 6px; border-radius: 6px;">🏆 최단거리</span>' : ''}
+      </div>
+
+      <div style="font-size: 13.5px; font-weight: 900; color: #0f172a; margin-bottom: 4px; word-break: keep-all;">
+        ${item.name}
+      </div>
+
+      <div style="background: #f0f7ff; border: 1.5px solid #bfdbfe; border-radius: 8px; padding: 6px 8px; margin-bottom: 6px;">
+        <div style="font-size: 9.5px; font-weight: 800; color: #1e3a8a; margin-bottom: 2px;">🏢 건물 내부 상세 설치 위치</div>
+        <div style="font-size: 12px; font-weight: 900; color: #1e40af; word-break: keep-all;">
+          ${item.buildPlace || '상세 위치 정보 없음'}
+        </div>
+      </div>
+
+      <div style="display: flex; align-items: baseline; gap: 6px; margin-bottom: 8px;">
+        <span style="font-size: 13px; font-weight: 900; color: #ef4444;">${item.distanceMeters}m</span>
+        <span style="font-size: 11px; font-weight: 700; color: #475569;">⏱️ ${item.walkingTime}</span>
+      </div>
+
+      <div style="display: flex; gap: 5px;">
+        <a href="https://www.google.com/maps/dir/?api=1&origin=${state.userLat},${state.userLon}&destination=${item.lat},${item.lon}&travelmode=walking" 
+           target="_blank" 
+           style="flex: 1; text-align: center; background: #0f172a; color: #ffffff; padding: 6px 8px; border-radius: 6px; font-size: 11px; font-weight: 800; text-decoration: none;">
+          🧭 Google 도보 길안내
+        </a>
+        <a href="tel:${item.clerkTel ? item.clerkTel.replace(/[^0-9]/g, '') : '119'}" 
+           style="text-align: center; background: #fee2e2; color: #dc2626; padding: 6px 10px; border-radius: 6px; font-size: 11px; font-weight: 800; text-decoration: none;">
+          📞 통화
+        </a>
+      </div>
+    </div>
+  `;
+}
+
 function clearMarkers() {
   if (!state.map || !window.google) return;
   state.markers.forEach(m => m.setMap(null));
   state.markers = [];
+  state.markersMap.clear();
   if (state.userMarker) { state.userMarker.setMap(null); state.userMarker = null; }
   if (state.routePolyline) { state.routePolyline.setMap(null); state.routePolyline = null; }
 }
@@ -641,85 +791,118 @@ function renderMapObjects() {
 
   const userPos = { lat: state.userLat, lng: state.userLon };
 
-  // 1. 사용자 현위치 (세련된 블루 레이더 펄스 마커)
+  // 1. 사용자 현위치 (식별하기 쉬운 파란 핀 + 레이더 링)
   state.userMarker = new google.maps.Marker({
     position: userPos,
     map: state.map,
     title: '내 현재 위치',
     zIndex: 999,
-    icon: {
-      path: google.maps.SymbolPath.CIRCLE,
-      scale: 8,
-      fillColor: '#2563eb',
-      fillOpacity: 1,
-      strokeColor: '#ffffff',
-      strokeWeight: 2.5,
-    }
+    icon: createUserLocationIcon(),
   });
 
-  // 2. 시설 마커 렌더링 (미니멀 서클 핀)
-  state.facilities.forEach((item) => {
-    const isNearest = item.isNearest;
-    let color = '#ef4444'; // AED 빨강
-    let scale = 9;
-
-    if (item.category === 'extinguisher') color = '#f97316';
-    if (item.category === 'hydrant') color = '#2563eb';
-    if (isNearest) {
-      color = '#f59e0b'; // 최단거리 황금색
-      scale = 14;
-    }
+  // 2. 시설 마커 렌더링 (각 기기별 아이콘과 텍스트가 표시된 SVG 핀)
+  state.facilities.forEach((item, index) => {
+    const isNearest = item.isNearest || (index === 0);
+    const isSelected = state.selectedFacilityId ? (state.selectedFacilityId === item.id) : isNearest;
 
     const marker = new google.maps.Marker({
       position: { lat: item.lat, lng: item.lon },
       map: state.map,
-      title: item.name,
-      zIndex: isNearest ? 100 : 10,
-      icon: {
-        path: google.maps.SymbolPath.CIRCLE,
-        scale: scale,
-        fillColor: color,
-        fillOpacity: 0.95,
-        strokeColor: '#ffffff',
-        strokeWeight: isNearest ? 3.5 : 2,
-      }
+      title: `[${item.categoryName}] ${item.name} (${item.distanceMeters}m)`,
+      zIndex: isNearest ? 100 : (50 - Math.min(index, 40)),
+      icon: createCustomPinIcon(item, isNearest, isSelected),
     });
 
     const infoWindow = new google.maps.InfoWindow({
-      content: `
-        <div style="font-family: Pretendard, sans-serif; padding: 6px; max-width: 230px;">
-          <strong style="font-size: 13px; color: #0f172a;">${item.name}</strong>
-          ${isNearest ? '<span style="background: #fef3c7; color: #b45309; font-size: 10px; font-weight: bold; padding: 1px 4px; border-radius: 4px; margin-left: 4px;">최단거리</span>' : ''}<br>
-          <p style="margin: 3px 0 2px; color: #dc2626; font-weight: bold; font-size: 12px;">거리: ${item.distanceMeters}m (${item.walkingTime})</p>
-          <p style="margin: 0; color: #1e3a8a; font-weight: bold; font-size: 11px;">🏢 ${item.buildPlace}</p>
-        </div>
-      `
+      content: createInfoWindowContent(item, isNearest),
     });
 
     marker.addListener('click', () => {
-      if (state.currentInfoWindow) {
-        state.currentInfoWindow.close();
-      }
-      infoWindow.open(state.map, marker);
-      state.currentInfoWindow = infoWindow;
-      updateNearestCard(item);
-      toggleBottomSheet(false);
+      selectFacility(item, false);
     });
 
     state.markers.push(marker);
+    state.markersMap.set(item.id, { marker, infoWindow, item });
   });
 
-  // 3. 최단거리 유도선 (Polyline)
-  if (state.nearestFacility) {
+  // 3. 최단거리(또는 현재 선택된 시설) 유도선 (Polyline)
+  const targetItem = (state.selectedFacilityId && state.facilities.find(f => f.id === state.selectedFacilityId)) || state.nearestFacility;
+  if (targetItem) {
     state.routePolyline = new google.maps.Polyline({
-      path: [userPos, { lat: state.nearestFacility.lat, lng: state.nearestFacility.lon }],
+      path: [userPos, { lat: targetItem.lat, lng: targetItem.lon }],
       strokeColor: '#f59e0b',
-      strokeOpacity: 0.85,
-      strokeWeight: 4,
+      strokeOpacity: 0.9,
+      strokeWeight: 4.5,
       geodesic: true,
       map: state.map,
     });
   }
+}
+
+// 특정 안전시설 선택 시 지도 이동, 인포윈도우 오픈, 핀 튕김 애니메이션 및 유도선 갱신
+function selectFacility(item, triggerFromList = false) {
+  if (!item) return;
+  state.selectedFacilityId = item.id;
+
+  // 하단 메인 카드 동기화
+  updateNearestCard(item);
+
+  // 지도 부드럽게 이동 및 줌인 (건물 및 도로 상세 확인)
+  if (state.map) {
+    state.map.panTo({ lat: item.lat, lng: item.lon });
+    if (state.map.getZoom() < 17) {
+      state.map.setZoom(17);
+    }
+  }
+
+  // 해당 마커 인포윈도우 오픈 & 핀 바운스 애니메이션
+  const markerObj = state.markersMap.get(item.id);
+  if (markerObj) {
+    if (state.currentInfoWindow) {
+      state.currentInfoWindow.close();
+    }
+    markerObj.infoWindow.open(state.map, markerObj.marker);
+    state.currentInfoWindow = markerObj.infoWindow;
+
+    if (markerObj.marker.setAnimation) {
+      markerObj.marker.setAnimation(google.maps.Animation.BOUNCE);
+      setTimeout(() => {
+        if (markerObj.marker) markerObj.marker.setAnimation(null);
+      }, 1400);
+    }
+  }
+
+  // 유도선(Polyline) 갱신
+  if (state.map) {
+    if (state.routePolyline) {
+      state.routePolyline.setMap(null);
+    }
+    state.routePolyline = new google.maps.Polyline({
+      path: [
+        { lat: state.userLat, lng: state.userLon },
+        { lat: item.lat, lng: item.lon }
+      ],
+      strokeColor: '#f59e0b',
+      strokeOpacity: 0.9,
+      strokeWeight: 4.5,
+      geodesic: true,
+      map: state.map,
+    });
+  }
+
+  // 하단 순위 리스트 카드 선택 스타일 반영
+  document.querySelectorAll('.facility-ranking-card').forEach(card => {
+    if (card.dataset.id === item.id) {
+      card.classList.add('selected');
+      if (!triggerFromList) {
+        card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    } else {
+      card.classList.remove('selected');
+    }
+  });
+
+  showStatus(`[${item.categoryName}] ${item.name} (${item.distanceMeters}m) 선택됨`, 1800);
 }
 
 // ==========================================================
@@ -792,31 +975,71 @@ function updateNearestCard(item) {
 function renderFacilityList(list) {
   elements.facilityList.innerHTML = '';
   if (!list || list.length === 0) {
-    elements.facilityList.innerHTML = '<div style="padding: 10px; color: #94a3b8; font-size: 12px;">표시할 시설이 없습니다.</div>';
+    elements.facilityList.innerHTML = `
+      <div style="padding: 16px; text-align: center; color: #94a3b8; font-size: 0.8rem;">
+        탐색 반경 내에 이용 가능한 안전시설이 없습니다.
+      </div>
+    `;
     return;
   }
 
-  list.forEach((item) => {
-    const div = document.createElement('div');
-    div.className = 'list-item';
-    div.innerHTML = `
-      <div class="list-item-left">
-        <span class="list-item-name">${item.isNearest ? '⚡ ' : ''}${item.name}</span>
-        <span class="list-item-sub">🏢 ${item.buildPlace}</span>
+  // 거리순 오름차순 정렬 (가장 가까운 기기가 최상단)
+  const sortedList = [...list].sort((a, b) => a.distanceMeters - b.distanceMeters);
+
+  sortedList.forEach((item, index) => {
+    const card = document.createElement('div');
+    const isSelected = state.selectedFacilityId ? (state.selectedFacilityId === item.id) : (index === 0);
+    card.className = `facility-ranking-card ${isSelected ? 'selected' : ''}`;
+    card.dataset.id = item.id;
+
+    let catIcon = '⚡';
+    let catText = 'AED';
+    let catClass = 'aed';
+    if (item.category === 'extinguisher') {
+      catIcon = '🧯';
+      catText = '소화기';
+      catClass = 'extinguisher';
+    } else if (item.category === 'hydrant') {
+      catIcon = '💧';
+      catText = '소화전';
+      catClass = 'hydrant';
+    }
+
+    const rankLabel = index === 0 ? '🏆 1위' : `#${index + 1}`;
+    const rankClass = index === 0 ? 'card-rank gold' : 'card-rank';
+    const isGolden = item.distanceMeters <= 300;
+
+    card.innerHTML = `
+      <div class="${rankClass}">
+        <span>${rankLabel}</span>
+        ${index === 0 ? '<span class="card-rank-sub">최단거리</span>' : ''}
       </div>
-      <div class="list-item-right">
-        <span class="list-item-dist">${item.distanceMeters}m</span>
+      <div class="card-main">
+        <div class="card-top-row">
+          <span class="card-cat-badge ${catClass}">${catIcon} ${catText}</span>
+          <span class="card-facility-name" title="${item.name}">${item.name}</span>
+        </div>
+        <div class="card-indoor-info" title="${item.buildPlace || item.buildAddress}">
+          <span>🏢</span>
+          <span>${item.buildPlace || item.buildAddress}</span>
+        </div>
+        <div class="card-dist-row">
+          <span class="card-dist-num">${item.distanceMeters}m</span>
+          <span class="card-time-eta">⏱️ ${item.walkingTime}</span>
+          ${isGolden ? '<span class="card-golden-pill">골든타임 4분 내</span>' : ''}
+        </div>
+      </div>
+      <div class="card-arrow-action">
+        <span>지도 확인</span>
+        <span>➔</span>
       </div>
     `;
 
-    div.addEventListener('click', () => {
-      updateNearestCard(item);
-      if (state.map) {
-        state.map.panTo({ lat: item.lat, lng: item.lon });
-      }
+    card.addEventListener('click', () => {
+      selectFacility(item, true);
     });
 
-    elements.facilityList.appendChild(div);
+    elements.facilityList.appendChild(card);
   });
 }
 
@@ -918,17 +1141,19 @@ function bindEvents() {
     fetchFacilities();
   });
 
-  // 아코디언 목록 토글
-  elements.listToggleHeader.addEventListener('click', () => {
-    const list = elements.facilityList;
-    if (list.style.display === 'none') {
-      list.style.display = 'flex';
-      elements.listArrow.textContent = '목록 닫기 ▲';
-    } else {
-      list.style.display = 'none';
-      elements.listArrow.textContent = '목록 열기 ▼';
-    }
-  });
+  // 아코디언 목록 토글 (선택적)
+  if (elements.listToggleHeader) {
+    elements.listToggleHeader.addEventListener('click', () => {
+      const list = elements.facilityList;
+      if (list.style.display === 'none') {
+        list.style.display = 'flex';
+        if (elements.listArrow) elements.listArrow.textContent = '목록 닫기 ▲';
+      } else {
+        list.style.display = 'none';
+        if (elements.listArrow) elements.listArrow.textContent = '목록 열기 ▼';
+      }
+    });
+  }
 
   // 모달 버튼
   elements.btnPreprocessingReport.addEventListener('click', () => openModal(elements.preprocessingModal));

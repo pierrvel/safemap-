@@ -241,6 +241,61 @@ body, html {
   box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.25);
 }
 
+/* 지도 핀 범례 바 (어떤 핀이 무엇인지 한눈에 알려주는 안내 바) */
+.map-legend-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  border-radius: 20px;
+  padding: 4px 10px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  align-self: center;
+}
+
+.legend-chip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #334155;
+  padding: 1px 4px;
+  border-radius: 12px;
+}
+
+.legend-color-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.legend-color-dot.aed {
+  background: #ef4444;
+  box-shadow: 0 0 0 1.5px rgba(239, 68, 68, 0.3);
+}
+
+.legend-color-dot.ext {
+  background: #f97316;
+  box-shadow: 0 0 0 1.5px rgba(249, 115, 22, 0.3);
+}
+
+.legend-color-dot.hyd {
+  background: #2563eb;
+  box-shadow: 0 0 0 1.5px rgba(37, 99, 235, 0.3);
+}
+
+.legend-color-dot.user {
+  background: #1d4ed8;
+  box-shadow: 0 0 0 1.5px rgba(29, 78, 216, 0.4);
+}
+
 /* ==========================================================
    지도 우측 플로팅 FAB 컨트롤
    ========================================================== */
@@ -599,78 +654,211 @@ body, html {
 
 .btn-action:active { transform: scale(0.96); }
 
-/* 시설 목록 아코디언 */
-.list-accordion {
+/* ==========================================================
+   내 위치 기준 최단거리 안전시설 순위 리스트
+   ========================================================== */
+.facility-ranking-section {
   border-top: 1px solid #f1f5f9;
-  padding-top: 8px;
-}
-
-.accordion-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 0.78rem;
-  font-weight: 700;
-  color: var(--text-secondary);
-  cursor: pointer;
-  padding: 4px 0;
-}
-
-.accordion-icon {
-  font-size: 0.72rem;
-  color: var(--blue-brand);
-}
-
-.accordion-body {
-  max-height: 180px;
-  overflow-y: auto;
+  padding-top: 12px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  margin-top: 8px;
+  gap: 8px;
 }
 
-.list-item {
+.ranking-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 12px;
-  background: #f8fafc;
-  border-radius: 8px;
-  cursor: pointer;
-  border: 1px solid #e2e8f0;
+  padding: 2px 2px 4px;
 }
 
-.list-item:hover {
-  background: #ffffff;
-  border-color: #bfdbfe;
-}
-
-.list-item-left {
+.ranking-header-title {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  align-items: center;
+  gap: 5px;
 }
 
-.list-item-name {
-  font-size: 0.82rem;
+.ranking-title-icon {
+  font-size: 0.95rem;
+}
+
+.ranking-title-text {
+  font-size: 0.88rem;
   font-weight: 800;
   color: var(--text-primary);
 }
 
-.list-item-sub {
-  font-size: 0.7rem;
+.ranking-badge {
+  font-size: 0.78rem;
+  font-weight: 800;
+  color: var(--blue-brand);
+}
+
+.ranking-guide-tip {
+  font-size: 0.68rem;
+  font-weight: 700;
   color: var(--text-muted);
+  background: #f1f5f9;
+  padding: 2px 8px;
+  border-radius: 12px;
 }
 
-.list-item-right {
-  text-align: right;
+.ranking-scroll-container {
+  max-height: 230px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-right: 2px;
 }
 
-.list-item-dist {
-  font-size: 0.92rem;
+.facility-ranking-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: #f8fafc;
+  border-radius: 12px;
+  border: 1.5px solid #e2e8f0;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  position: relative;
+}
+
+.facility-ranking-card:hover {
+  background: #ffffff;
+  border-color: #93c5fd;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.08);
+}
+
+.facility-ranking-card.selected {
+  background: #f0fdf4;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.18), 0 4px 14px rgba(37, 99, 235, 0.12);
+}
+
+.card-rank {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 40px;
+  border-radius: 10px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  font-size: 0.82rem;
+  font-weight: 900;
+  color: #475569;
+  flex-shrink: 0;
+}
+
+.card-rank.gold {
+  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+  border-color: #f59e0b;
+  color: #b45309;
+  box-shadow: 0 2px 6px rgba(245, 158, 11, 0.25);
+}
+
+.card-rank-sub {
+  font-size: 0.58rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.card-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.card-top-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.card-cat-badge {
+  font-size: 0.65rem;
+  font-weight: 800;
+  padding: 1px 6px;
+  border-radius: 6px;
+  line-height: 1.4;
+  flex-shrink: 0;
+}
+
+.card-cat-badge.aed { background: #fee2e2; color: #dc2626; }
+.card-cat-badge.extinguisher { background: #ffedd5; color: #ea580c; }
+.card-cat-badge.hydrant { background: #eff6ff; color: #2563eb; }
+
+.card-facility-name {
+  font-size: 0.88rem;
+  font-weight: 800;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.card-indoor-info {
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: #1e40af;
+  background: #eff6ff;
+  padding: 2px 7px;
+  border-radius: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  max-width: 100%;
+}
+
+.card-dist-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-top: 1px;
+}
+
+.card-dist-num {
+  font-size: 0.96rem;
   font-weight: 900;
   color: var(--red-emergency);
+}
+
+.card-time-eta {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.card-golden-pill {
+  font-size: 0.62rem;
+  font-weight: 800;
+  background: #fef2f2;
+  color: #dc2626;
+  border: 1px solid #fecaca;
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+.card-arrow-action {
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: var(--blue-brand);
+  background: var(--blue-ice);
+  padding: 4px 8px;
+  border-radius: 8px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
 }
 
 /* ==========================================================

@@ -66,6 +66,14 @@
             <span>안심검증</span>
           </label>
         </div>
+
+        <!-- 지도 핀 범례 (색상/아이콘별 기기 종류 안내) -->
+        <div class="map-legend-bar">
+          <div class="legend-chip aed"><span class="legend-color-dot aed"></span><span class="emoji">⚡</span> AED</div>
+          <div class="legend-chip ext"><span class="legend-color-dot ext"></span><span class="emoji">🧯</span> 소화기</div>
+          <div class="legend-chip hyd"><span class="legend-color-dot hyd"></span><span class="emoji">💧</span> 소화전</div>
+          <div class="legend-chip user"><span class="legend-color-dot user"></span><span class="emoji">📍</span> 내 위치</div>
+        </div>
       </div>
 
       <!-- 지도 우측 플로팅 컨트롤 (컴팩트 툴바) -->
@@ -174,14 +182,18 @@
           </div>
         </div>
 
-        <!-- 주변 시설 전체 목록 아코디언 -->
-        <div class="list-accordion">
-          <div class="accordion-head" id="listToggleHeader">
-            <span>주변 안전시설 전체 (<b id="totalListCount">0</b>개)</span>
-            <span class="accordion-icon" id="listArrow">목록 열기 ▼</span>
+        <!-- 내 위치 기준 최단거리 안전시설 순위 리스트 (거리 & 예상 소요시간 즉시 노출) -->
+        <div class="facility-ranking-section">
+          <div class="ranking-header">
+            <div class="ranking-header-title">
+              <span class="ranking-title-icon">📍</span>
+              <span class="ranking-title-text">내 위치 기준 가장 가까운 시설 순위</span>
+              <span class="ranking-badge">(<b id="totalListCount">0</b>개)</span>
+            </div>
+            <span class="ranking-guide-tip">터치 시 지도 핀 강조</span>
           </div>
-          <div class="accordion-body" id="facilityList" style="display: none;">
-            <!-- 동적 주입 -->
+          <div class="ranking-scroll-container" id="facilityList">
+            <!-- 자바스크립트로 최단거리 순서대로 카드 동적 생성 -->
           </div>
         </div>
 
