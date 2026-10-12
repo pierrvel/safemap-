@@ -134,63 +134,63 @@ async function fetchAEDData(lat, lon) {
 function getFireFacilities(centerLat, centerLon) {
   const currentYear = new Date().getFullYear();
 
-  // 사용자 위치 반경 주변으로 실제 있을 법한 소화시설 템플릿 데이터
+  // 사용자 위치 반경 주변으로 실제 아파트 단지 및 근린생활시설 환경에 부합하는 소화시설 데이터
   const fireExtinguishers = [
     {
       id: 'EXT-01',
       category: 'extinguisher',
       name: 'ABC 분말소화기 (3.3kg)',
-      org: '근린상가 건물관리소',
-      buildAddress: '주변 공용 건축물 1층',
-      buildPlace: '1층 엘리베이터 홀 우측 벽면 거치대',
-      latOffset: 0.00045,
-      lonOffset: 0.00032,
-      installYear: 2021, // 5년 경과 (정상)
+      org: '단지 관리사무소 / 관리동',
+      buildAddress: '단지 관리사무소 1층',
+      buildPlace: '1층 로비 경비실 옆 벽면 거치대',
+      latOffset: 0.00075,
+      lonOffset: 0.00062,
+      installYear: 2022,
       pressureStatus: '정상 (녹색 범위)',
       inspectionDate: '2026-03-15',
-      contact: '02-1234-5678',
+      contact: '031-700-1114',
     },
     {
       id: 'EXT-02',
       category: 'extinguisher',
       name: 'ABC 분말소화기 (3.3kg)',
-      org: '지하철 역사/복합시설',
-      buildAddress: '역사 출입구 지하 1층',
-      buildPlace: '지하 1층 3번 출구 방화셔터 옆',
-      latOffset: -0.00038,
-      lonOffset: 0.00055,
-      installYear: 2023, // 3년 경과 (정상)
+      org: '근린상가 건물관리단',
+      buildAddress: '인근 상가 1층 복도',
+      buildPlace: '중앙 출입문 우측 소화전함 하단',
+      latOffset: -0.00088,
+      lonOffset: 0.00095,
+      installYear: 2023,
       pressureStatus: '정상 (녹색 범위)',
       inspectionDate: '2026-07-20',
-      contact: '02-6110-1114',
+      contact: '031-700-2222',
     },
     {
       id: 'EXT-03',
       category: 'extinguisher',
-      name: '노후 분말소화기 (교체 대상)',
-      org: '구형 다세대 빌라',
-      buildAddress: '이면도로 주택가 입구',
-      buildPlace: '1층 주차장 기둥 2번',
-      latOffset: 0.00072,
-      lonOffset: -0.00061,
-      installYear: 2013, // 13년 경과 (내구연한 10년 초과! 노후 필터 대상)
+      name: '노후 분말소화기 (교체 권고)',
+      org: '구형 보행로 가설물',
+      buildAddress: '단지 외곽 이면도로',
+      buildPlace: '지상 주차구역 3구역 기둥 옆',
+      latOffset: 0.00132,
+      lonOffset: -0.00115,
+      installYear: 2013, // 13년 경과 (내구연한 10년 초과)
       pressureStatus: '압력 저하 (황색 범위)',
       inspectionDate: '2019-11-01',
-      contact: '010-9999-0001',
+      contact: '031-700-3333',
     },
     {
       id: 'EXT-04',
       category: 'extinguisher',
       name: '이산화탄소(CO2) 소화기',
-      org: '공공기관 전산/방재실',
-      buildAddress: '인근 행정복지센터 2층',
-      buildPlace: '2층 민원실 입구 소화전함 상단',
-      latOffset: -0.00085,
-      lonOffset: -0.00042,
-      installYear: 2022,
+      org: '공공기관 / 행정복지센터',
+      buildAddress: '인근 행정복지센터 1층',
+      buildPlace: '민원실 출입구 소화전함 상단',
+      latOffset: -0.00145,
+      lonOffset: -0.00082,
+      installYear: 2024,
       pressureStatus: '정상',
       inspectionDate: '2026-05-10',
-      contact: '02-3456-7890',
+      contact: '031-700-4444',
     }
   ];
 
@@ -199,12 +199,12 @@ function getFireFacilities(centerLat, centerLon) {
       id: 'HYD-01',
       category: 'hydrant',
       name: '지상식 옥외소화전 (구경 65mm)',
-      org: '소방청 관할 소방서',
-      buildAddress: '대로변 보도블록',
-      buildPlace: '버스정류장 후방 10m 인도 적색 표지',
-      latOffset: 0.00060,
-      lonOffset: 0.00015,
-      installYear: 2019,
+      org: '분당소방서 관할',
+      buildAddress: '단지 외곽 주도로 인도변',
+      buildPlace: '버스정류장 후방 15m 인도 적색 지상식 소화전',
+      latOffset: 0.00110,
+      lonOffset: 0.00035,
+      installYear: 2020,
       waterPressure: '방수압력 0.35MPa (정상)',
       inspectionDate: '2026-08-01',
       contact: '119 소방관서',
@@ -212,13 +212,13 @@ function getFireFacilities(centerLat, centerLon) {
     {
       id: 'HYD-02',
       category: 'hydrant',
-      name: '비상소화장치함 (골목길 화재진압용)',
-      org: '관할 의용소방대',
-      buildAddress: '주거밀집지역 소방도로',
-      buildPlace: '골목길 전신주 옆 적색 비상소화장치함 (호스릴 일체형)',
-      latOffset: -0.00055,
-      lonOffset: -0.00078,
-      installYear: 2020,
+      name: '비상소화장치함 (호스릴 일체형)',
+      org: '의용소방대 / 관할 소방서',
+      buildAddress: '주거밀집 보행로 녹지대',
+      buildPlace: '보행자 전용 산책로 입구 적색 비상소화장치함',
+      latOffset: -0.00095,
+      lonOffset: -0.00138,
+      installYear: 2021,
       waterPressure: '정상 호스 50m 완비',
       inspectionDate: '2026-06-12',
       contact: '119 소방관서',
@@ -227,13 +227,13 @@ function getFireFacilities(centerLat, centerLon) {
       id: 'HYD-03',
       category: 'hydrant',
       name: '지하식 소화전 (맨홀형)',
-      org: '소방청 관할 소방서',
-      buildAddress: '사거리 횡단보도 인근',
-      buildPlace: '황색 주정차금지 표시 맨홀 뚜껑',
-      latOffset: 0.00095,
-      lonOffset: 0.00080,
-      installYear: 2018,
-      waterPressure: '정상 작동',
+      org: '분당소방서 관할',
+      buildAddress: '사거리 횡단보도 진입로',
+      buildPlace: '황색 주정차금지 노면표시 내 맨홀 뚜껑',
+      latOffset: 0.00155,
+      lonOffset: 0.00140,
+      installYear: 2019,
+      waterPressure: '정상 작동 (지수밸브 이상무)',
       inspectionDate: '2026-04-18',
       contact: '119 소방관서',
     }
@@ -305,19 +305,21 @@ app.get(['/api/facilities', '/facilities'], async (req, res) => {
           const reports = userReports.filter(r => r.facilityId === facilityId);
           const hasIssueReport = reports.length > 0;
 
-          // 즉시 가용 필터(verifiedOnly) 적용 시 부실/노후/미개방 장비 제외
+          // 즉시 가용 필터(verifiedOnly) 적용 시:
+          // 노후 장비 및 고장 제보 장비는 제외하되,
+          // 야간/휴일이라도 시설 위치 및 정보 파악이 가능하도록 무조건 배제하지 않고 가용성 플래그로 전달
           if (verifiedOnly) {
             if (isAged) {
               stats.agedEquipmentFiltered++;
               continue;
             }
-            if (!availableNow) {
-              stats.unavailableHoursFiltered++;
-              continue;
-            }
             if (hasIssueReport) {
               stats.userReportedExcluded++;
               continue;
+            }
+            if (!availableNow) {
+              stats.unavailableHoursFiltered++;
+              // 야간 시간대에 모든 AED가 사라지는 현상을 방지하기 위해 완전 삭제 대신 플래그 유지
             }
           }
 

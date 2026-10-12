@@ -65,6 +65,11 @@ export default function BottomSheet({
                   {isGoldenTime && (
                     <span className="badge golden-pill">🚨 골든타임 4분 내</span>
                   )}
+                  {currentItem.category === 'aed' && currentItem.availableNow === false && (
+                    <span className="badge" style={{ background: '#fef3c7', color: '#b45309', border: '1px solid #fde68a' }}>
+                      🌙 현재 운영시간 외
+                    </span>
+                  )}
                   <span className={`badge cat-badge ${currentCatInfo.badgeClass}`}>
                     {currentCatInfo.label}
                   </span>
@@ -142,6 +147,24 @@ export default function BottomSheet({
             </div>
           )}
 
+          {/* 내 위치 미세 조정 안내 바 */}
+          <div style={{
+            background: '#f0fdf4',
+            border: '1px solid #bbf7d0',
+            borderRadius: '10px',
+            padding: '8px 12px',
+            margin: '0 16px 12px 16px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            fontSize: '12px',
+            color: '#166534',
+            fontWeight: 500
+          }}>
+            <span style={{ fontSize: '15px' }}>💡</span>
+            <span>내 위치 핀(파란 원)을 드래그하거나 지도 우클릭으로 정확한 아파트 동/호수로 위치를 맞출 수 있습니다.</span>
+          </div>
+
           {/* 가까운 시설 랭킹 목록 */}
           <div className="facility-ranking-section">
             <div className="ranking-header">
@@ -182,6 +205,11 @@ export default function BottomSheet({
                         <span className="card-facility-name" title={facility.name}>
                           {facility.name}
                         </span>
+                        {facility.category === 'aed' && facility.availableNow === false && (
+                          <span style={{ fontSize: '9px', fontWeight: 700, color: '#b45309', background: '#fef3c7', padding: '1px 4px', borderRadius: '4px' }}>
+                            🌙 야간외
+                          </span>
+                        )}
                       </div>
 
                       <div className="card-indoor-info" title={facility.buildPlace || facility.buildAddress}>

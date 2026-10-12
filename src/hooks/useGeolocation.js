@@ -9,11 +9,10 @@ export function useGeolocation() {
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState(null);
 
-  const requestGps = useCallback(() => {
+  const requestGps = useCallback((forceFresh = false) => {
     setLoading(true);
     if (!navigator.geolocation) {
-      setErrorMsg('현재 브라우저가 위치 정보를 지원하지 않아 서울시청으로 기본 설정합니다.');
-      setCoords({ lat: DEFAULT_LAT, lon: DEFAULT_LON });
+      setErrorMsg('현재 브라우저가 위치 정보를 지원하지 않습니다.');
       setIsLiveGps(false);
       setLoading(false);
       return;
@@ -31,15 +30,14 @@ export function useGeolocation() {
       },
       (err) => {
         console.warn('Geolocation fallback:', err.message);
-        setCoords({ lat: DEFAULT_LAT, lon: DEFAULT_LON });
         setIsLiveGps(false);
         setLoading(false);
-        setErrorMsg('GPS 신호를 가져올 수 없어 서울시청 중심으로 표시합니다.');
+        setErrorMsg('GPS 신호를 수신하지 못했습니다. 검색 또는 핀 드래그로 위치를 지정할 수 있습니다.');
       },
       {
         enableHighAccuracy: true,
-        timeout: 8000,
-        maximumAge: 15000,
+        timeout: 10000,
+        maximumAge: forceFresh ? 0 : 10000,
       }
     );
   }, []);

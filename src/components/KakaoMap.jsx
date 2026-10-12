@@ -19,6 +19,8 @@ export default function KakaoMap({
   onReSearch,
   onToggleSheet,
   onToast,
+  onUserLocationChange,
+  onRequestGps,
 }) {
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
@@ -72,15 +74,29 @@ export default function KakaoMap({
     const map = new window.kakao.maps.Map(mapContainerRef.current, options);
     mapRef.current = map;
 
+    // 지도 좌클릭: 팝업 및 스파이더 닫기
     window.kakao.maps.event.addListener(map, 'click', () => {
       collapseSpider();
       if (infoWindowRef.current) {
         infoWindowRef.current.close();
       }
     });
-  }, [isLoaded, userCoords.lat, userCoords.lon, collapseSpider]);
 
-  // 2. 사용자 현위치 마커 갱신
+    // 지도 우클릭: 해당 지점을 내 위치로 즉시 지정 (PC 오차 보정 편의 기능)
+    window.kakao.maps.event.addListener(map, 'rightclick', (mouseEvent) => {
+      const latlng = mouseEvent.latLng;
+      const clickedLat = latlng.getLat();
+      const clickedLon = latlng.getLng();
+      if (onUserLocationChange) {
+        onUserLocationChange(clickedLat, clickedLon);
+      }
+      if (onToast) {
+        onToast('📍 지도에서 우클릭한 위치를 내 위치로 설정했습니다.');
+      }
+    });
+  }, [isLoaded, collapseSpider, onUserLocationChange, onToast]);
+
+  // 2. 사용자 현위치 마커 갱신 및 지도 중심 이동 (panTo)
   useEffect(() => {
     if (!mapRef.current || !window.kakao?.maps) return;
 
@@ -88,17 +104,36 @@ export default function KakaoMap({
     const pos = new window.kakao.maps.LatLng(userCoords.lat, userCoords.lon);
 
     if (!userMarkerRef.current) {
-      userMarkerRef.current = new window.kakao.maps.Marker({
+      const marker = new window.kakao.maps.Marker({
         position: pos,
         map: map,
-        title: '내 현재 위치',
+        title: '내 현재 위치 (마우스로 드래그하여 정확한 위치로 이동 가능)',
         zIndex: 999,
+        draggable: true, // 사용자가 직접 핀을 드래그해서 위치 보정 가능!
         image: createUserLocationIcon(),
       });
+
+      // 마커 드래그 완료 시 부모 상태로 새 위치 전달
+      window.kakao.maps.event.addListener(marker, 'dragend', () => {
+        const newPos = marker.getPosition();
+        const lat = newPos.getLat();
+        const lon = newPos.getLng();
+        if (onUserLocationChange) {
+          onUserLocationChange(lat, lon);
+        }
+        if (onToast) {
+          onToast('📍 내 위치 핀을 이동했습니다. 주변 안전시설을 갱신합니다.');
+        }
+      });
+
+      userMarkerRef.current = marker;
     } else {
       userMarkerRef.current.setPosition(pos);
     }
-  }, [userCoords.lat, userCoords.lon]);
+
+    // 좌표가 변경되면 지도를 해당 위치로 부드럽게 이동
+    map.panTo(pos);
+  }, [userCoords.lat, userCoords.lon, onUserLocationChange, onToast]);
 
   // 3. 시설 마커 클러스터링 및 렌더링
   useEffect(() => {
@@ -119,7 +154,8 @@ export default function KakaoMap({
       let matchedCluster = null;
       for (const cl of clusters) {
         const d = calculateDistanceMeters(cl[0].lat, cl[0].lon, item.lat, item.lon);
-        if (d <= 26) {
+        // 클러스터링 임계값을 26m에서 12m로 대폭 축소하여 서로 다른 건물의 장비가 묶이지 않도록 개선
+        if (d <= 12) {
           matchedCluster = cl;
           break;
         }
@@ -156,6 +192,7 @@ export default function KakaoMap({
           if (infoWindowRef.current) infoWindowRef.current.close();
           iw.open(map, marker);
           infoWindowRef.current = iw;
+          map.panTo(centerPos);
           onSelectFacility(centerItem);
         });
 
@@ -281,10 +318,13 @@ export default function KakaoMap({
   // FAB 버튼 핸들러들
   const handleSnapUserGps = () => {
     if (!mapRef.current) return;
+    if (onRequestGps) {
+      onRequestGps();
+    }
     const pos = new window.kakao.maps.LatLng(userCoords.lat, userCoords.lon);
     mapRef.current.panTo(pos);
     mapRef.current.setLevel(3);
-    onToast('내 현재 위치로 지도를 이동했습니다.');
+    onToast('📍 내 위치로 지도를 이동하고 GPS를 갱신했습니다.');
   };
 
   const handleReSearchArea = () => {

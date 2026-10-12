@@ -226,6 +226,10 @@ export default function App() {
     hydrant: facilities.filter((f) => f.category === 'hydrant').length,
   };
 
+  const handleUserLocationChange = useCallback((newLat, newLon) => {
+    setManualCoords(newLat, newLon);
+  }, [setManualCoords]);
+
   return (
     <div id="app" className="app-container">
       {/* 1. 메인 지도 래퍼 (지도 + 상단 플로팅 바 + 내비게이션 패널) */}
@@ -248,6 +252,8 @@ export default function App() {
             }}
             onToggleSheet={() => setIsSheetCollapsed((prev) => !prev)}
             onToast={showToast}
+            onUserLocationChange={handleUserLocationChange}
+            onRequestGps={() => requestGps(true)}
           />
         ) : (
           <div className="map-view" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#f8fafc', padding: 24, textAlign: 'center' }}>
