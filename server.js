@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
@@ -11,8 +12,19 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.static(__dirname));
 
-// 공공데이터포털 서비스 키 (User provided)
-const DATA_GO_KR_KEY = 'cHwaVtA5OSzBd8gpTWKh2vM7qNRMDW55vNxj0bnj5JgFoTv7ih74zb9sZR6Q788IQIxEIVSKgknbEPUN332gAQ%3D%3D';
+// 환경변수 기반 API 키 및 설정 (하드코딩 제거)
+const DATA_GO_KR_KEY = process.env.DATA_GO_KR_KEY || '';
+const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY || '';
+
+// 클라이언트 설정 제공 API (환경변수 안전 전달)
+app.get('/api/config', (req, res) => {
+  res.json({
+    success: true,
+    googleMapsApiKey: GOOGLE_MAPS_API_KEY,
+    hasGoogleKey: !!GOOGLE_MAPS_API_KEY,
+    hasDataGoKrKey: !!DATA_GO_KR_KEY,
+  });
+});
 
 // 사용자 제보 데이터 저장소 (인메모리 + 파일)
 const REPORTS_FILE = path.join(__dirname, 'reports.json');
