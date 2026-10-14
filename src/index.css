@@ -2123,3 +2123,60 @@ body, html {
   color: #b45309;
   border: 1px solid #fde68a;
 }
+
+/* ==========================================================
+   내비게이션 액션 버튼 스타일 보정 (.nav-action-row & .btn-nav-control)
+   ========================================================== */
+.nav-action-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.btn-nav-control {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 9px 10px;
+  border-radius: 10px;
+  font-size: 0.76rem;
+  font-weight: 800;
+  cursor: pointer;
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.btn-nav-control:active {
+  transform: scale(0.96);
+  background: #dbeafe;
+}
+
+.btn-nav-emergency {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  font-size: 0.76rem;
+  font-weight: 900;
+  text-decoration: none;
+  background: #ef4444;
+  color: #ffffff;
+  border: none;
+  box-shadow: 0 2px 8px rgba(239, 68, 68, 0.3);
+  transition: all 0.15s;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.btn-nav-emergency:active {
+  transform: scale(0.96);
+  background: #dc2626;
+}
