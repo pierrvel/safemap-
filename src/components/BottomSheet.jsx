@@ -107,6 +107,11 @@ export default function BottomSheet({
       )}
 
       {/* 3. [Peek 모드] 145~160px 컴팩트 핵심 요약 (지도 시야 80% 확보) */}
+      {snapState === 'peek' && !currentItem && (
+        <div className="peek-content-wrapper" style={{ padding: '14px 16px', textAlign: 'center', color: '#64748b', fontSize: '13px' }}>
+          <span>🚨 주변 안전시설을 탐색하고 있습니다...</span>
+        </div>
+      )}
       {snapState === 'peek' && currentItem && (
         <div className="peek-content-wrapper">
           {/* 정보 1: 도보 시간/거리 + 골든타임 + 신호등 가용성 배지 */}

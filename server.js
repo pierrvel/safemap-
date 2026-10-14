@@ -12,6 +12,47 @@ app.use(express.json());
 const staticDir = fs.existsSync(path.join(__dirname, 'dist'))
   ? path.join(__dirname, 'dist')
   : path.join(__dirname, 'public');
+
+// 구버전 클라이언트 캐시로 인한 404 흰화면 방지 에셋 핸들러
+app.get('/assets/:file', (req, res, next) => {
+  const fileName = req.params.file;
+  const filePath = path.join(staticDir, 'assets', fileName);
+  if (fs.existsSync(filePath)) {
+    return res.sendFile(filePath);
+  }
+  // 요청된 구버전 해시 파일이 없을 경우 최신 index 번들로 폴백 제공
+  const assetsDir = path.join(staticDir, 'assets');
+  if (fs.existsSync(assetsDir)) {
+    const files = fs.readdirSync(assetsDir);
+    if (fileName.endsWith('.js')) {
+      const activeJs = files.find(f => f.startsWith('index-') && f.endsWith('.js'));
+      if (activeJs) {
+        res.setHeader('Content-Type', 'application/javascript');
+        return res.sendFile(path.join(assetsDir, activeJs));
+      }
+    } else if (fileName.endsWith('.css')) {
+      const activeCss = files.find(f => f.startsWith('index-') && f.endsWith('.css'));
+      if (activeCss) {
+        res.setHeader('Content-Type', 'text/css');
+        return res.sendFile(path.join(assetsDir, activeCss));
+      }
+    }
+  }
+  next();
+});
+
+// HTML 진입점: 모바일 브라우저 캐시 방지 헤더 강제 적용
+app.get(['/', '/index.html'], (req, res, next) => {
+  const indexPath = path.join(staticDir, 'index.html');
+  if (fs.existsSync(indexPath)) {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    return res.sendFile(indexPath);
+  }
+  next();
+});
+
 app.use(express.static(staticDir));
 
 // 환경변수 기반 API 키 및 설정
