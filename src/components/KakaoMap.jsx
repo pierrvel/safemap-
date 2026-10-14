@@ -480,151 +480,49 @@ export default function KakaoMap({
     }
   }, [navRouteCoordinates, selectedFacility]);
 
-  // 5. 모바일/태블릿 터치 제스처 완벽 보장 엔진 (터치 드래그 패닝 & 핀치 줌 & 더블탭 줌)
+  // 5. 모바일/태블릿 터치 제스처 종료 시 UI 자동 복구 (비침습적 패시브 리스너 - 네이티브 드래그 100% 보장)
   useEffect(() => {
     const container = mapContainerRef.current;
-    if (!container || !mapRef.current) return;
+    if (!container) return;
 
-    const map = mapRef.current;
-    let isTouching = false;
-    let isPinching = false;
-    let lastX = 0;
-    let lastY = 0;
-    let initialPinchDist = 0;
     let lastTapTime = 0;
-    let nativeDragActive = false;
-
-    // 카카오맵 자체 드래그 리스너 (브라우저가 네이티브로 드래그를 처리하는 경우 감지)
-    const onNativeDrag = () => {
-      nativeDragActive = true;
-    };
-    window.kakao.maps.event.addListener(map, 'dragstart', onNativeDrag);
-    window.kakao.maps.event.addListener(map, 'drag', onNativeDrag);
 
     const handleTouchStart = (e) => {
-      if (e.target && e.target.closest && (
-        e.target.closest('button') ||
-        e.target.closest('.bottom-sheet') ||
-        e.target.closest('.top-floating-bar') ||
-        e.target.closest('.map-fab-group') ||
-        e.target.closest('.cluster-popup-modal') ||
-        e.target.closest('.modal-overlay')
-      )) {
-        return;
-      }
+      if (restoreTimerRef.current) clearTimeout(restoreTimerRef.current);
 
-      nativeDragActive = false;
-
-      if (e.touches.length === 1) {
-        isTouching = true;
-        isPinching = false;
-        lastX = e.touches[0].clientX;
-        lastY = e.touches[0].clientY;
-
-        // 더블 탭 확대 감지 (320ms 이내 2회 탭)
+      // 패시브 더블 탭 확대 감지 (네이티브 드래그와 전혀 충돌하지 않음)
+      if (e.touches && e.touches.length === 1) {
         const now = Date.now();
         if (now - lastTapTime < 320) {
-          const cur = map.getLevel();
-          if (cur > 1) {
-            map.setLevel(cur - 1, { animate: true });
+          if (mapRef.current) {
+            const cur = mapRef.current.getLevel();
+            if (cur > 1) {
+              mapRef.current.setLevel(cur - 1, { animate: true });
+            }
           }
           lastTapTime = 0;
         } else {
           lastTapTime = now;
         }
-      } else if (e.touches.length === 2) {
-        isTouching = false;
-        isPinching = true;
-        const x1 = e.touches[0].clientX;
-        const y1 = e.touches[0].clientY;
-        const x2 = e.touches[1].clientX;
-        const y2 = e.touches[1].clientY;
-        initialPinchDist = Math.hypot(x1 - x2, y1 - y2);
       }
     };
 
-    const handleTouchMove = (e) => {
-      if (isPinching && e.touches.length === 2) {
-        if (e.cancelable) e.preventDefault();
-        hideControls();
-        if (restoreTimerRef.current) clearTimeout(restoreTimerRef.current);
-
-        const x1 = e.touches[0].clientX;
-        const y1 = e.touches[0].clientY;
-        const x2 = e.touches[1].clientX;
-        const y2 = e.touches[1].clientY;
-        const currentDist = Math.hypot(x1 - x2, y1 - y2);
-        const diff = currentDist - initialPinchDist;
-
-        if (diff > 35) {
-          const cur = map.getLevel();
-          if (cur > 1) {
-            map.setLevel(cur - 1, { animate: true });
-          }
-          initialPinchDist = currentDist;
-        } else if (diff < -35) {
-          const cur = map.getLevel();
-          if (cur < 14) {
-            map.setLevel(cur + 1, { animate: true });
-          }
-          initialPinchDist = currentDist;
-        }
-        return;
-      }
-
-      if (isTouching && e.touches.length === 1) {
-        const curX = e.touches[0].clientX;
-        const curY = e.touches[0].clientY;
-        const dx = curX - lastX;
-        const dy = curY - lastY;
-
-        if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
-          hideControls();
-          if (restoreTimerRef.current) clearTimeout(restoreTimerRef.current);
-        }
-
-        if (e.cancelable) e.preventDefault();
-
-        // 카카오맵 자체 드래그가 미동작하는 환경(태블릿/모바일 데스크톱 모드 등)에서 100% 매끄러운 panBy 보정
-        if (!nativeDragActive && (Math.abs(dx) > 1 || Math.abs(dy) > 1)) {
-          map.panBy(-dx, -dy);
-        }
-
-        lastX = curX;
-        lastY = curY;
-      }
+    const handleTouchEnd = () => {
+      // 손가락을 떼면 200ms 후 상단 및 우측 UI 자동 복구
+      if (restoreTimerRef.current) clearTimeout(restoreTimerRef.current);
+      restoreTimerRef.current = setTimeout(showControls, 200);
     };
 
-    const handleTouchEnd = (e) => {
-      if (e.touches.length === 0) {
-        isTouching = false;
-        isPinching = false;
-        nativeDragActive = false;
-        // 드래그/줌 제스처 종료 시 250ms 후 UI 자동 복구
-        if (restoreTimerRef.current) clearTimeout(restoreTimerRef.current);
-        restoreTimerRef.current = setTimeout(showControls, 250);
-      } else if (e.touches.length === 1) {
-        isPinching = false;
-        isTouching = true;
-        lastX = e.touches[0].clientX;
-        lastY = e.touches[0].clientY;
-      }
-    };
-
-    container.addEventListener('touchstart', handleTouchStart, { passive: false });
-    container.addEventListener('touchmove', handleTouchMove, { passive: false });
+    container.addEventListener('touchstart', handleTouchStart, { passive: true });
     container.addEventListener('touchend', handleTouchEnd, { passive: true });
     container.addEventListener('touchcancel', handleTouchEnd, { passive: true });
 
     return () => {
-      window.kakao.maps.event.removeListener(map, 'dragstart', onNativeDrag);
-      window.kakao.maps.event.removeListener(map, 'drag', onNativeDrag);
       container.removeEventListener('touchstart', handleTouchStart);
-      container.removeEventListener('touchmove', handleTouchMove);
       container.removeEventListener('touchend', handleTouchEnd);
       container.removeEventListener('touchcancel', handleTouchEnd);
     };
-  }, [isLoaded, hideControls, showControls]);
+  }, [showControls]);
 
   // FAB 버튼 핸들러들
   const handleSnapUserGps = () => {
