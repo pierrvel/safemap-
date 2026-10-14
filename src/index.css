@@ -56,15 +56,20 @@ body, html {
   width: 100%;
   height: 100%;
   overflow: hidden;
+  touch-action: none !important;
 }
 
-.map-view {
+.map-view,
+#mainMap {
   width: 100%;
   height: 100%;
   position: absolute;
   top: 0;
   left: 0;
   z-index: 1;
+  touch-action: none !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
 }
 
 /* 상단 플로팅 글래스 컨테이너 */
@@ -546,6 +551,17 @@ body, html {
 .fab-btn.sheet-toggle {
   background: #fffbeb;
   border-color: #fde68a;
+}
+
+.fab-btn.zoom-btn {
+  background: #ffffff;
+  font-weight: 900;
+  font-size: 1.1rem;
+}
+
+.fab-btn.zoom-btn:active {
+  background: #eff6ff;
+  border-color: #3b82f6;
 }
 
 /* 상태 토스트 배너 */

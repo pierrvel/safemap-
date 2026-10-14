@@ -206,7 +206,9 @@ export function createInfoWindowContent(item, isNearest) {
 export function calculateSpiderPositions(cluster, centerPos) {
   const count = cluster.length;
   const radiusDeg = 0.00033; // 약 36m
-  const latCos = Math.max(0.1, Math.cos(centerPos.lat * Math.PI / 180));
+  const centerLat = Number(centerPos.lat);
+  const centerLon = Number(centerPos.lng ?? centerPos.lon);
+  const latCos = Math.max(0.1, Math.cos(centerLat * Math.PI / 180));
 
   return cluster.map((item, index) => {
     let angle;
@@ -216,8 +218,8 @@ export function calculateSpiderPositions(cluster, centerPos) {
       angle = (2 * Math.PI * index) / count - (Math.PI / 2);
     }
 
-    const sLat = centerPos.lat + radiusDeg * Math.cos(angle);
-    const sLon = centerPos.lng + (radiusDeg * Math.sin(angle)) / latCos;
+    const sLat = centerLat + radiusDeg * Math.cos(angle);
+    const sLon = centerLon + (radiusDeg * Math.sin(angle)) / latCos;
 
     return {
       item,

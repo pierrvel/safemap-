@@ -14,8 +14,35 @@
   
   <!-- Pretendard 공식 경량 CDN (Google Fonts 에러 및 ORB 차단 완전 방지) -->
   <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" />
-  <script type="module" crossorigin src="/assets/index-DoPh402c.js"></script>
-  <link rel="stylesheet" crossorigin href="/assets/index-KGZhQvE0.css">
+
+  <!-- 카카오맵 SDK 태블릿/모바일(갤럭시탭, 아이패드) 터치 제스처 활성화 패치 -->
+  <script>
+    (function() {
+      try {
+        var isTouchDevice = ('ontouchstart' in window) ||
+          (navigator.maxTouchPoints > 0) ||
+          (navigator.msMaxTouchPoints > 0);
+
+        if (isTouchDevice) {
+          if (!('ontouchstart' in document.documentElement)) {
+            document.documentElement.ontouchstart = null;
+          }
+          var ua = navigator.userAgent || '';
+          if (ua.indexOf('Android') === -1 && ua.indexOf('iPhone') === -1 && ua.indexOf('iPad') === -1) {
+            var patchedUa = ua + ' Android';
+            try {
+              Object.defineProperty(navigator, 'userAgent', {
+                get: function() { return patchedUa; },
+                configurable: true
+              });
+            } catch (e) {}
+          }
+        }
+      } catch (e) {}
+    })();
+  </script>
+  <script type="module" crossorigin src="/assets/index-Bbj0mN-e.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-CyfkPaHP.css">
 </head>
 <body>
   <div id="root"></div>
