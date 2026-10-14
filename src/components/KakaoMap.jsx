@@ -48,6 +48,34 @@ export default function KakaoMap({
 
   const [isSkyview, setIsSkyview] = useState(false);
 
+  // Zen Mode UI 자동 숨김 및 복구 타이머 및 수동 줌 플래그
+  const restoreTimerRef = useRef(null);
+  const isManualZoomingRef = useRef(false);
+
+  // Zen Mode UI 즉시 숨김
+  const hideControls = useCallback(() => {
+    if (isManualZoomingRef.current) return;
+    const topBar = document.querySelector('.top-floating-bar');
+    if (topBar) topBar.classList.add('zen-hidden');
+    const fabGroup = document.querySelector('.map-fab-group');
+    if (fabGroup) fabGroup.classList.add('zen-hidden');
+  }, []);
+
+  // Zen Mode UI 부드럽게 자동 복구
+  const showControls = useCallback(() => {
+    const topBar = document.querySelector('.top-floating-bar');
+    if (topBar) topBar.classList.remove('zen-hidden');
+    const fabGroup = document.querySelector('.map-fab-group');
+    if (fabGroup) fabGroup.classList.remove('zen-hidden');
+    if (onZenModeChange) onZenModeChange(false);
+  }, [onZenModeChange]);
+
+  useEffect(() => {
+    return () => {
+      if (restoreTimerRef.current) clearTimeout(restoreTimerRef.current);
+    };
+  }, []);
+
   // 콜백 레퍼런스 안정화 (마커 재렌더링 방지)
   const onSelectFacilityRef = useRef(onSelectFacility);
   useEffect(() => {
@@ -107,27 +135,39 @@ export default function KakaoMap({
     map.setDraggable(true);
     map.setZoomable(true);
 
-    // 지도 클릭: 빈 공간 클릭 시에만 팝업/스파이더 닫기 & 젠 모드 해제
+    // 지도 클릭: 빈 공간 클릭 시에만 팝업/스파이더 닫기 & UI 즉시 복구
     window.kakao.maps.event.addListener(map, 'click', () => {
       if (justClickedMarkerRef.current) return;
       collapseSpider();
       if (infoWindowRef.current) {
         infoWindowRef.current.close();
       }
-      // 직접 DOM 클래스 제어로 부드럽게 복구
-      const topBar = document.querySelector('.top-floating-bar');
-      if (topBar) topBar.classList.remove('zen-hidden');
-      const fabGroup = document.querySelector('.map-fab-group');
-      if (fabGroup) fabGroup.classList.remove('zen-hidden');
-      if (onZenModeChange) onZenModeChange(false);
+      showControls();
     });
 
-    // 지도 드래그 시작 시: Emergency Zen Mode 활성화 (리액트 리렌더 없이 GPU 가속 직접 적용)
+    // 지도 드래그 시작 시: Emergency Zen Mode 활성화 (UI 숨김)
     window.kakao.maps.event.addListener(map, 'dragstart', () => {
-      const topBar = document.querySelector('.top-floating-bar');
-      if (topBar) topBar.classList.add('zen-hidden');
-      const fabGroup = document.querySelector('.map-fab-group');
-      if (fabGroup) fabGroup.classList.add('zen-hidden');
+      if (restoreTimerRef.current) clearTimeout(restoreTimerRef.current);
+      hideControls();
+    });
+
+    // 지도 드래그 종료 시: 200ms 후 UI 자동 복구
+    window.kakao.maps.event.addListener(map, 'dragend', () => {
+      if (restoreTimerRef.current) clearTimeout(restoreTimerRef.current);
+      restoreTimerRef.current = setTimeout(showControls, 200);
+    });
+
+    // 지도 줌 시작 시: UI 숨김
+    window.kakao.maps.event.addListener(map, 'zoom_start', () => {
+      if (isManualZoomingRef.current) return;
+      if (restoreTimerRef.current) clearTimeout(restoreTimerRef.current);
+      hideControls();
+    });
+
+    // 지도 줌 완료 시: 250ms 후 UI 자동 복구
+    window.kakao.maps.event.addListener(map, 'zoom_changed', () => {
+      if (restoreTimerRef.current) clearTimeout(restoreTimerRef.current);
+      restoreTimerRef.current = setTimeout(showControls, 250);
     });
 
     // 지도 우클릭: 해당 지점을 내 위치로 즉시 지정
@@ -142,7 +182,7 @@ export default function KakaoMap({
         onToast('📍 지도에서 우클릭한 위치를 내 위치로 설정했습니다.');
       }
     });
-  }, [isLoaded, collapseSpider, onUserLocationChange, onToast, onZenModeChange]);
+  }, [isLoaded, collapseSpider, onUserLocationChange, onToast, hideControls, showControls]);
 
   // 2. 사용자 현위치 마커 갱신 (지도가 사용자의 드래그를 방해하지 않도록 초기화 시에만 panTo)
   const isInitialLocationSetRef = useRef(false);
@@ -506,6 +546,9 @@ export default function KakaoMap({
     const handleTouchMove = (e) => {
       if (isPinching && e.touches.length === 2) {
         if (e.cancelable) e.preventDefault();
+        hideControls();
+        if (restoreTimerRef.current) clearTimeout(restoreTimerRef.current);
+
         const x1 = e.touches[0].clientX;
         const y1 = e.touches[0].clientY;
         const x2 = e.touches[1].clientX;
@@ -535,6 +578,11 @@ export default function KakaoMap({
         const dx = curX - lastX;
         const dy = curY - lastY;
 
+        if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
+          hideControls();
+          if (restoreTimerRef.current) clearTimeout(restoreTimerRef.current);
+        }
+
         if (e.cancelable) e.preventDefault();
 
         // 카카오맵 자체 드래그가 미동작하는 환경(태블릿/모바일 데스크톱 모드 등)에서 100% 매끄러운 panBy 보정
@@ -552,6 +600,9 @@ export default function KakaoMap({
         isTouching = false;
         isPinching = false;
         nativeDragActive = false;
+        // 드래그/줌 제스처 종료 시 250ms 후 UI 자동 복구
+        if (restoreTimerRef.current) clearTimeout(restoreTimerRef.current);
+        restoreTimerRef.current = setTimeout(showControls, 250);
       } else if (e.touches.length === 1) {
         isPinching = false;
         isTouching = true;
@@ -573,7 +624,7 @@ export default function KakaoMap({
       container.removeEventListener('touchend', handleTouchEnd);
       container.removeEventListener('touchcancel', handleTouchEnd);
     };
-  }, [isLoaded]);
+  }, [isLoaded, hideControls, showControls]);
 
   // FAB 버튼 핸들러들
   const handleSnapUserGps = () => {
@@ -589,20 +640,30 @@ export default function KakaoMap({
 
   const handleZoomIn = () => {
     if (!mapRef.current) return;
+    isManualZoomingRef.current = true;
+    showControls();
     const cur = mapRef.current.getLevel();
     if (cur > 1) {
       mapRef.current.setLevel(cur - 1, { animate: true });
       if (onToast) onToast(`지도 확대 (레벨 ${cur - 1})`);
     }
+    setTimeout(() => {
+      isManualZoomingRef.current = false;
+    }, 450);
   };
 
   const handleZoomOut = () => {
     if (!mapRef.current) return;
+    isManualZoomingRef.current = true;
+    showControls();
     const cur = mapRef.current.getLevel();
     if (cur < 14) {
       mapRef.current.setLevel(cur + 1, { animate: true });
       if (onToast) onToast(`지도 축소 (레벨 ${cur + 1})`);
     }
+    setTimeout(() => {
+      isManualZoomingRef.current = false;
+    }, 450);
   };
 
   const handleReSearchArea = () => {
