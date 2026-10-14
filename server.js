@@ -171,6 +171,78 @@ function isCurrentlyAvailable(item) {
   return currentTimeInt >= stt && currentTimeInt <= end;
 }
 
+// 인메모리 지오코딩 캐시 (동일 주소/기관명 반복 조회 방지 및 초고속 0ms 응답 보장)
+const aedGeocodeCache = new Map();
+
+// 공공데이터포털 등록 좌표의 지번/필지 오차 교차 검증 및 지오코딩 보정 함수
+async function geocodeAddress(address, orgName = '') {
+  const cacheKey = `${address || ''}|${orgName || ''}`;
+  if (aedGeocodeCache.has(cacheKey)) {
+    return aedGeocodeCache.get(cacheKey);
+  }
+
+  const kakaoKey = getKakaoMapApiKey();
+  if (!kakaoKey) {
+    return null;
+  }
+
+  const headers = {
+    Authorization: `KakaoAK ${kakaoKey}`,
+    KA: 'sdk/1.0.0 os/javascript lang/ko-KR res/1920x1080 device/pc origin/http://localhost:3000',
+    Origin: 'http://localhost:3000',
+  };
+
+  const cleanAddr = (address || '').split(',')[0].replace(/\([^\)]*\)/g, '').trim();
+
+  try {
+    // 1. 주요 랜드마크/기관명(학교, 병원, 센터, 역, 아파트, 청사 등) 키워드 검색 우선 시도
+    if (orgName && (orgName.includes('학교') || orgName.includes('병원') || orgName.includes('센터') || orgName.includes('역') || orgName.includes('아파트') || orgName.includes('청사') || orgName.includes('도서관'))) {
+      const kwUrl = `https://dapi.kakao.com/v2/local/search/keyword.json?query=${encodeURIComponent(orgName)}`;
+      const kwRes = await fetch(kwUrl, { headers });
+      if (kwRes.ok) {
+        const kwData = await kwRes.json();
+        if (kwData.documents && kwData.documents.length > 0) {
+          const matched = kwData.documents.find(d => cleanAddr && d.road_address_name && cleanAddr.includes(d.road_address_name.split(' ')[2] || '')) || kwData.documents[0];
+          const res = {
+            lat: parseFloat(matched.y),
+            lon: parseFloat(matched.x),
+            source: 'KAKAO_KEYWORD',
+            matchedName: matched.place_name,
+            matchedAddr: matched.road_address_name || matched.address_name,
+          };
+          aedGeocodeCache.set(cacheKey, res);
+          return res;
+        }
+      }
+    }
+
+    // 2. 도로명/지번 정밀 주소 지오코딩 검색 (상세 건물 필지 중심)
+    if (cleanAddr) {
+      const addrUrl = `https://dapi.kakao.com/v2/local/search/address.json?query=${encodeURIComponent(cleanAddr)}`;
+      const addrRes = await fetch(addrUrl, { headers });
+      if (addrRes.ok) {
+        const addrData = await addrRes.json();
+        if (addrData.documents && addrData.documents.length > 0) {
+          const doc = addrData.documents[0];
+          const res = {
+            lat: parseFloat(doc.y),
+            lon: parseFloat(doc.x),
+            source: 'KAKAO_ADDRESS',
+            matchedAddr: doc.address_name,
+          };
+          aedGeocodeCache.set(cacheKey, res);
+          return res;
+        }
+      }
+    }
+  } catch (err) {
+    // 지오코딩 실패 시 안전하게 null 반환
+  }
+
+  aedGeocodeCache.set(cacheKey, null);
+  return null;
+}
+
 // 실시간 AED 공공데이터 조회
 async function fetchAEDData(lat, lon) {
   const serviceKey = getDataGoKrKey();
@@ -457,80 +529,109 @@ app.get(['/api/facilities', '/facilities'], async (req, res) => {
         const rawAeds = await fetchAEDData(lat, lon);
         stats.totalCollected += rawAeds.length;
 
-        for (const raw of rawAeds) {
-          const itemLat = parseFloat(raw.wgs84Lat);
-          const itemLon = parseFloat(raw.wgs84Lon);
+        const aedFacilities = await Promise.all(
+          rawAeds.map(async (raw) => {
+            const itemLat = parseFloat(raw.wgs84Lat);
+            const itemLon = parseFloat(raw.wgs84Lon);
 
-          // [전처리 1: 좌표 결측치 및 비정상 좌표 필터링]
-          if (isNaN(itemLat) || isNaN(itemLon) || itemLat < 33 || itemLat > 39 || itemLon < 124 || itemLon > 132) {
-            stats.invalidCoordsRemoved++;
-            continue;
-          }
-
-          // [전처리 2: 등록일/노후도 분석]
-          const installYear = parseInstallYearFromSerial(raw.serialSeq);
-          const currentYear = new Date().getFullYear();
-          const age = installYear ? currentYear - installYear : null;
-          const isAged = age !== null && age >= 8; // 8년 이상 노후 또는 배터리 교체주기 초과 의심
-
-          // [전처리 3: 현재 시각 운영시간 내 개방 여부]
-          const availableNow = isCurrentlyAvailable(raw);
-
-          // [전처리 4: 사용자 제보 접수 여부 확인]
-          const facilityId = `AED-${raw.rnum || raw.serialSeq}`;
-          const reports = userReports.filter(r => r.facilityId === facilityId);
-          const hasIssueReport = reports.length > 0;
-
-          // 즉시 가용 필터(verifiedOnly) 적용 시:
-          // 노후 장비 및 고장 제보 장비는 제외하되,
-          // 야간/휴일이라도 시설 위치 및 정보 파악이 가능하도록 무조건 배제하지 않고 가용성 플래그로 전달
-          if (verifiedOnly) {
-            if (isAged) {
-              stats.agedEquipmentFiltered++;
-              continue;
+            // [전처리 1: 좌표 결측치 및 비정상 좌표 필터링]
+            if (isNaN(itemLat) || isNaN(itemLon) || itemLat < 33 || itemLat > 39 || itemLon < 124 || itemLon > 132) {
+              stats.invalidCoordsRemoved++;
+              return null;
             }
-            if (hasIssueReport) {
-              stats.userReportedExcluded++;
-              continue;
+
+            // [전처리 2: 등록일/노후도 분석]
+            const installYear = parseInstallYearFromSerial(raw.serialSeq);
+            const currentYear = new Date().getFullYear();
+            const age = installYear ? currentYear - installYear : null;
+            const isAged = age !== null && age >= 8; // 8년 이상 노후 또는 배터리 교체주기 초과 의심
+
+            // [전처리 3: 현재 시각 운영시간 내 개방 여부]
+            const availableNow = isCurrentlyAvailable(raw);
+
+            // [전처리 4: 사용자 제보 접수 여부 확인]
+            const facilityId = `AED-${raw.rnum || raw.serialSeq}`;
+            const reports = userReports.filter(r => r.facilityId === facilityId);
+            const hasIssueReport = reports.length > 0;
+
+            // 즉시 가용 필터(verifiedOnly) 적용 시:
+            // 노후 장비 및 고장 제보 장비는 제외하되,
+            // 야간/휴일이라도 시설 위치 및 정보 파악이 가능하도록 무조건 배제하지 않고 가용성 플래그로 전달
+            if (verifiedOnly) {
+              if (isAged) {
+                stats.agedEquipmentFiltered++;
+                return null;
+              }
+              if (hasIssueReport) {
+                stats.userReportedExcluded++;
+                return null;
+              }
+              if (!availableNow) {
+                stats.unavailableHoursFiltered++;
+                // 야간 시간대에 모든 AED가 사라지는 현상을 방지하기 위해 완전 삭제 대신 플래그 유지
+              }
             }
-            if (!availableNow) {
-              stats.unavailableHoursFiltered++;
-              // 야간 시간대에 모든 AED가 사라지는 현상을 방지하기 위해 완전 삭제 대신 플래그 유지
+
+            // [좌표 정밀도 교차 검증 및 지오코딩 자동 보정]
+            let finalLat = itemLat;
+            let finalLon = itemLon;
+            let locationConfidence = 'HIGH'; // 공공데이터포털 공인 정밀좌표
+            let calibrationOffsetMeters = 0;
+
+            if (raw.buildAddress || raw.org) {
+              const geocoded = await geocodeAddress(raw.buildAddress, raw.org);
+              if (geocoded && !isNaN(geocoded.lat) && !isNaN(geocoded.lon)) {
+                const diffMeters = calculateDistanceMeters(itemLat, itemLon, geocoded.lat, geocoded.lon);
+                // 70m 이상 편차 발생 시 공공데이터의 필지/아파트 인접동 오차로 판별하여 도로명/건물 정밀좌표로 보정
+                if (diffMeters >= 70) {
+                  finalLat = geocoded.lat;
+                  finalLon = geocoded.lon;
+                  locationConfidence = 'CALIBRATED';
+                  calibrationOffsetMeters = diffMeters;
+                }
+              }
             }
-          }
 
-          const distMeters = calculateDistanceMeters(lat, lon, itemLat, itemLon);
+            const distMeters = calculateDistanceMeters(lat, lon, finalLat, finalLon);
 
-          const isAed24h = (raw.sunSttTme === '0000' && raw.sunEndTme === '2400') ||
-            (raw.satSttTme === '0000' && raw.satEndTme === '2400') ||
-            (raw.monSttTme === '0000' && raw.monEndTme === '2400');
+            const isAed24h = (raw.sunSttTme === '0000' && raw.sunEndTme === '2400') ||
+              (raw.satSttTme === '0000' && raw.satEndTme === '2400') ||
+              (raw.monSttTme === '0000' && raw.monEndTme === '2400');
 
-          allFacilities.push({
-            id: facilityId,
-            category: 'aed',
-            categoryName: '자동심장충격기 (AED)',
-            locationConfidence: 'HIGH', // 공인 정밀좌표 (국립중앙의료원 공공데이터)
-            available24h: isAed24h,
-            name: `${raw.org || '공공시설'} AED`,
-            org: raw.org || '관리기관 미상',
-            buildAddress: raw.buildAddress || '주소 정보 없음',
-            buildPlace: raw.buildPlace || '상세 위치 정보 없음', // [계획서 핵심: 건물 내부 상세 위치]
-            lat: itemLat,
-            lon: itemLon,
-            distanceMeters: distMeters,
-            walkingTime: getWalkingTimeText(distMeters),
-            model: raw.model || '표준 모델',
-            mfg: raw.mfg || '제조사 정보 없음',
-            clerkTel: raw.clerkTel || raw.managerTel || '119',
-            installYear: installYear || '미상',
-            age: age !== null ? `${age}년` : '확인 불가',
-            isAged,
-            availableNow,
-            reportsCount: reports.length,
-            reports,
-            checkin: facilityCheckins[facilityId] || null,
-            verified: !isAged && availableNow && !hasIssueReport,
-          });
+            return {
+              id: facilityId,
+              category: 'aed',
+              categoryName: '자동심장충격기 (AED)',
+              locationConfidence,
+              calibrationOffsetMeters,
+              rawLat: itemLat,
+              rawLon: itemLon,
+              available24h: isAed24h,
+              name: `${raw.org || '공공시설'} AED`,
+              org: raw.org || '관리기관 미상',
+              buildAddress: raw.buildAddress || '주소 정보 없음',
+              buildPlace: raw.buildPlace || '상세 위치 정보 없음', // [계획서 핵심: 건물 내부 상세 위치]
+              lat: finalLat,
+              lon: finalLon,
+              distanceMeters: distMeters,
+              walkingTime: getWalkingTimeText(distMeters),
+              model: raw.model || '표준 모델',
+              mfg: raw.mfg || '제조사 정보 없음',
+              clerkTel: raw.clerkTel || raw.managerTel || '119',
+              installYear: installYear || '미상',
+              age: age !== null ? `${age}년` : '확인 불가',
+              isAged,
+              availableNow,
+              reportsCount: reports.length,
+              reports,
+              checkin: facilityCheckins[facilityId] || null,
+              verified: !isAged && availableNow && !hasIssueReport,
+            };
+          })
+        );
+
+        for (const item of aedFacilities) {
+          if (item) allFacilities.push(item);
         }
       } catch (err) {
         console.error('AED API Fetch Error:', err.message);

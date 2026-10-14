@@ -133,8 +133,9 @@ export function createUserLocationIcon() {
 
 export function createFloatingPillContent(item) {
   const place = item.buildPlace || item.buildAddress || item.name;
+  const isCalibrated = item.locationConfidence === 'CALIBRATED';
   const isEstimated = item.locationConfidence === 'ESTIMATED';
-  const dotEmoji = isEstimated ? '🟡' : '🟢';
+  const dotEmoji = isCalibrated ? '🔵' : (isEstimated ? '🟡' : '🟢');
 
   return `
     <div style="

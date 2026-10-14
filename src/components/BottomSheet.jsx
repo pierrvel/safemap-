@@ -204,8 +204,12 @@ export default function BottomSheet({
                     {trafficStatus.text}
                   </span>
                   {/* 좌표 신뢰도 배지 */}
-                  <span className={`confidence-badge ${currentItem.locationConfidence === 'HIGH' ? 'high' : 'estimated'}`}>
-                    {currentItem.locationConfidence === 'HIGH' ? '🟢 공인 정밀좌표' : '🟡 구역 좌표 (현장확인)'}
+                  <span className={`confidence-badge ${currentItem.locationConfidence === 'CALIBRATED' ? 'calibrated' : currentItem.locationConfidence === 'HIGH' ? 'high' : 'estimated'}`}>
+                    {currentItem.locationConfidence === 'CALIBRATED'
+                      ? `🔵 도로명 정밀교정${currentItem.calibrationOffsetMeters ? ` (${currentItem.calibrationOffsetMeters}m 보정)` : ''}`
+                      : currentItem.locationConfidence === 'HIGH'
+                        ? '🟢 공인 정밀좌표'
+                        : '🟡 구역 좌표 (현장확인)'}
                   </span>
                   <span className={`badge cat-badge ${currentCatInfo.badgeClass}`}>
                     {currentCatInfo.label}
@@ -390,6 +394,11 @@ export default function BottomSheet({
                         {facility.category === 'aed' && facility.availableNow === false && (
                           <span style={{ fontSize: '9px', fontWeight: 700, color: '#b45309', background: '#fef3c7', padding: '1px 4px', borderRadius: '4px' }}>
                             🌙 야간외
+                          </span>
+                        )}
+                        {facility.locationConfidence === 'CALIBRATED' && (
+                          <span style={{ fontSize: '9px', fontWeight: 700, color: '#1d4ed8', background: '#eff6ff', padding: '1px 4px', borderRadius: '4px' }}>
+                            🔵 정밀교정
                           </span>
                         )}
                         {facility.locationConfidence === 'ESTIMATED' && (
