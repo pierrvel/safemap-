@@ -321,6 +321,24 @@ export default function App() {
     setManualCoords(newLat, newLon);
   }, [setManualCoords]);
 
+  const handleSelectFacility = useCallback((fac) => {
+    setSelectedFacility(fac);
+    setSheetSnap('peek');
+  }, []);
+
+  const handleOpenCluster = useCallback((cluster) => {
+    setClusterModalData(cluster);
+  }, []);
+
+  const handleToggleSheet = useCallback(() => {
+    setSheetSnap((prev) => (prev === 'minimized' ? 'peek' : 'minimized'));
+  }, []);
+
+  const handleReSearch = useCallback((newLat, newLon) => {
+    setManualCoords(newLat, newLon);
+    showToast('현재 화면 중심으로 안전시설을 다시 검색합니다.');
+  }, [setManualCoords, showToast]);
+
   return (
     <div id="app" className="app-container">
       {/* 1. 메인 지도 래퍼 (지도 + 상단 플로팅 바 + 내비게이션 패널) */}
@@ -331,19 +349,11 @@ export default function App() {
             userCoords={coords}
             facilities={facilities}
             selectedFacility={selectedFacility}
-            onSelectFacility={(fac) => {
-              setSelectedFacility(fac);
-              setSheetSnap('peek');
-            }}
-            onOpenCluster={(cluster) => setClusterModalData(cluster)}
+            onSelectFacility={handleSelectFacility}
+            onOpenCluster={handleOpenCluster}
             navRouteCoordinates={navData?.coordinates || null}
-            onReSearch={(newLat, newLon) => {
-              setManualCoords(newLat, newLon);
-              showToast('현재 화면 중심으로 안전시설을 다시 검색합니다.');
-            }}
-            onToggleSheet={() => {
-              setSheetSnap((prev) => (prev === 'minimized' ? 'peek' : 'minimized'));
-            }}
+            onReSearch={handleReSearch}
+            onToggleSheet={handleToggleSheet}
             onToast={showToast}
             onUserLocationChange={handleUserLocationChange}
             onRequestGps={() => requestGps(true)}
@@ -397,18 +407,20 @@ export default function App() {
         )}
       </main>
 
-      {/* 2. 하단 3단 스냅 바텀시트 */}
-      <BottomSheet
-        facilities={facilities}
-        selectedFacility={selectedFacility}
-        onSelectFacility={(fac) => setSelectedFacility(fac)}
-        snapState={sheetSnap}
-        onSnapChange={setSheetSnap}
-        onStartNavigation={handleStartNavigation}
-        onOpenReport={(fac) => setReportModalData(fac)}
-        onCheckin={handleCheckin}
-        backup24h={backup24h}
-      />
+      {/* 2. 하단 3단 스냅 바텀시트 - 길안내 중에는 숨겨서 내비 패널과의 중복 충돌 방지 */}
+      {!isNavigating && (
+        <BottomSheet
+          facilities={facilities}
+          selectedFacility={selectedFacility}
+          onSelectFacility={handleSelectFacility}
+          snapState={sheetSnap}
+          onSnapChange={setSheetSnap}
+          onStartNavigation={handleStartNavigation}
+          onOpenReport={(fac) => setReportModalData(fac)}
+          onCheckin={handleCheckin}
+          backup24h={backup24h}
+        />
+      )}
 
       {/* 3. 모달 창들 */}
       {clusterModalData && (

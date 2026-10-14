@@ -887,8 +887,8 @@ app.post(['/api/routes/directions', '/routes/directions'], async (req, res) => {
       durationSeconds: estSec,
       walkingTimeText: mins === 0 ? `약 ${Math.max(secs, 10)}초` : `약 ${mins}분 ${secs > 0 ? secs + '초' : ''}`,
       coordinates: [
-        { lat: oLat, lng: oLon },
-        { lat: dLat, lng: dLon }
+        [oLon, oLat],
+        [dLon, dLat]
       ],
       steps: [
         { stepIndex: 1, icon: '🏁', instruction: `출발지에서 목적지 방면으로 보행`, distanceMeters: Math.round(estDist / 2) },

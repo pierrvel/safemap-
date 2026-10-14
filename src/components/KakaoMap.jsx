@@ -34,6 +34,9 @@ export default function KakaoMap({
   const routePolylineRef = useRef(null);
   const indoorDashLineRef = useRef(null);
 
+  // 마커 터치 시 맵 클릭 이벤트 전파로 인한 스파이더 즉시 닫힘 방지 플래그
+  const justClickedMarkerRef = useRef(false);
+
   // 스파이더파이어 상태 관리
   const spiderDataRef = useRef({
     activeCluster: null,
@@ -44,6 +47,12 @@ export default function KakaoMap({
   });
 
   const [isSkyview, setIsSkyview] = useState(false);
+
+  // 콜백 레퍼런스 안정화 (마커 재렌더링 방지)
+  const onSelectFacilityRef = useRef(onSelectFacility);
+  useEffect(() => {
+    onSelectFacilityRef.current = onSelectFacility;
+  }, [onSelectFacility]);
 
   // 스파이더 접기 함수
   const collapseSpider = useCallback(() => {
@@ -66,8 +75,8 @@ export default function KakaoMap({
     s.activeCluster = null;
   }, []);
 
-  // 바텀시트 높이(약 140~180px)를 고려한 지도 중심 오프셋 이동 함수
-  const panToWithOffset = useCallback((latlng, offsetY = 80) => {
+  // 바텀시트 높이를 고려한 지도 중심 오프셋 이동 함수
+  const panToWithOffset = useCallback((latlng, offsetY = 70) => {
     const map = mapRef.current;
     if (!map) return;
     map.panTo(latlng);
@@ -75,10 +84,10 @@ export default function KakaoMap({
       if (mapRef.current) {
         mapRef.current.panBy(0, offsetY);
       }
-    }, 40);
+    }, 50);
   }, []);
 
-  // 1. 지도 인스턴스 초기화
+  // 1. 지도 인스턴스 초기화 (터치 드래그 활성화 및 이벤트 최적화)
   useEffect(() => {
     if (!isLoaded || !mapContainerRef.current || mapRef.current) return;
 
@@ -86,26 +95,42 @@ export default function KakaoMap({
     const options = {
       center: initialPos,
       level: 3,
+      draggable: true,
+      scrollwheel: true,
+      disableDoubleClick: false,
     };
 
     const map = new window.kakao.maps.Map(mapContainerRef.current, options);
     mapRef.current = map;
 
-    // 지도 좌클릭: 팝업 및 스파이더 닫기 & 젠 모드 해제
+    // 모바일 터치 및 드래그 명시적 활성화
+    map.setDraggable(true);
+    map.setZoomable(true);
+
+    // 지도 클릭: 빈 공간 클릭 시에만 팝업/스파이더 닫기 & 젠 모드 해제
     window.kakao.maps.event.addListener(map, 'click', () => {
+      if (justClickedMarkerRef.current) return;
       collapseSpider();
       if (infoWindowRef.current) {
         infoWindowRef.current.close();
       }
+      // 직접 DOM 클래스 제어로 부드럽게 복구
+      const topBar = document.querySelector('.top-floating-bar');
+      if (topBar) topBar.classList.remove('zen-hidden');
+      const fabGroup = document.querySelector('.map-fab-group');
+      if (fabGroup) fabGroup.classList.remove('zen-hidden');
       if (onZenModeChange) onZenModeChange(false);
     });
 
-    // 지도 드래그 시작 시: Emergency Zen Mode 활성화 (시야 85% 확보)
+    // 지도 드래그 시작 시: Emergency Zen Mode 활성화 (리액트 리렌더 없이 GPU 가속 직접 적용)
     window.kakao.maps.event.addListener(map, 'dragstart', () => {
-      if (onZenModeChange) onZenModeChange(true);
+      const topBar = document.querySelector('.top-floating-bar');
+      if (topBar) topBar.classList.add('zen-hidden');
+      const fabGroup = document.querySelector('.map-fab-group');
+      if (fabGroup) fabGroup.classList.add('zen-hidden');
     });
 
-    // 지도 우클릭: 해당 지점을 내 위치로 즉시 지정 (PC 오차 보정 편의 기능)
+    // 지도 우클릭: 해당 지점을 내 위치로 즉시 지정
     window.kakao.maps.event.addListener(map, 'rightclick', (mouseEvent) => {
       const latlng = mouseEvent.latLng;
       const clickedLat = latlng.getLat();
@@ -119,7 +144,8 @@ export default function KakaoMap({
     });
   }, [isLoaded, collapseSpider, onUserLocationChange, onToast, onZenModeChange]);
 
-  // 2. 사용자 현위치 마커 갱신 및 지도 중심 이동 (panToWithOffset)
+  // 2. 사용자 현위치 마커 갱신 (지도가 사용자의 드래그를 방해하지 않도록 초기화 시에만 panTo)
+  const isInitialLocationSetRef = useRef(false);
   useEffect(() => {
     if (!mapRef.current || !window.kakao?.maps) return;
 
@@ -149,11 +175,16 @@ export default function KakaoMap({
       });
 
       userMarkerRef.current = marker;
+      panToWithOffset(pos, 60);
+      isInitialLocationSetRef.current = true;
     } else {
       userMarkerRef.current.setPosition(pos);
+      // 위치가 수동 지정 또는 GPS 갱신으로 크게 바뀐 경우에만 이동
+      if (!isInitialLocationSetRef.current) {
+        panToWithOffset(pos, 60);
+        isInitialLocationSetRef.current = true;
+      }
     }
-
-    panToWithOffset(pos, 60);
   }, [userCoords.lat, userCoords.lon, onUserLocationChange, onToast, panToWithOffset]);
 
   // 선택된 시설 변경 시 고시인성 현장 힌트 말풍선(Floating Pill) 오버레이 갱신
@@ -166,7 +197,7 @@ export default function KakaoMap({
       floatingPillOverlayRef.current = null;
     }
 
-    if (selectedFacility) {
+    if (selectedFacility && !isNaN(selectedFacility.lat) && !isNaN(selectedFacility.lon)) {
       const pos = new window.kakao.maps.LatLng(selectedFacility.lat, selectedFacility.lon);
       const overlay = new window.kakao.maps.CustomOverlay({
         position: pos,
@@ -175,12 +206,13 @@ export default function KakaoMap({
         yAnchor: 2.15,
         xAnchor: 0.5,
         zIndex: 700,
+        clickable: false, // 터치 이벤트 관통 허용
       });
       floatingPillOverlayRef.current = overlay;
     }
   }, [selectedFacility]);
 
-  // 3. 시설 마커 클러스터링 및 렌더링
+  // 3. 시설 마커 클러스터링 및 렌더링 (동일 건물 및 근접 장비 묶음 보장)
   useEffect(() => {
     if (!mapRef.current || !window.kakao?.maps) return;
 
@@ -199,8 +231,14 @@ export default function KakaoMap({
       let matchedCluster = null;
       for (const cl of clusters) {
         const d = calculateDistanceMeters(cl[0].lat, cl[0].lon, item.lat, item.lon);
-        // 클러스터링 임계값을 26m에서 12m로 대폭 축소하여 서로 다른 건물의 장비가 묶이지 않도록 개선
-        if (d <= 12) {
+        // 동일 주소이거나 22m 이내의 시설들을 클러스터링
+        const sameAddress = Boolean(
+          cl[0].buildAddress &&
+          item.buildAddress &&
+          cl[0].buildAddress.length > 5 &&
+          cl[0].buildAddress === item.buildAddress
+        );
+        if (d <= 22 || sameAddress) {
           matchedCluster = cl;
           break;
         }
@@ -233,12 +271,15 @@ export default function KakaoMap({
         });
 
         window.kakao.maps.event.addListener(marker, 'click', () => {
+          justClickedMarkerRef.current = true;
+          setTimeout(() => { justClickedMarkerRef.current = false; }, 400);
+
           collapseSpider();
           if (infoWindowRef.current) infoWindowRef.current.close();
           iw.open(map, marker);
           infoWindowRef.current = iw;
-          panToWithOffset(centerPos, 90);
-          onSelectFacility(centerItem);
+          panToWithOffset(centerPos, 80);
+          if (onSelectFacilityRef.current) onSelectFacilityRef.current(centerItem);
         });
 
         if (containsSelected) {
@@ -248,6 +289,7 @@ export default function KakaoMap({
 
         markersRef.current.push(marker);
       } else {
+        // 복수 장비 밀집 클러스터 핀 생성
         const clusterMarker = new window.kakao.maps.Marker({
           position: centerPos,
           map: map,
@@ -257,14 +299,18 @@ export default function KakaoMap({
         });
 
         window.kakao.maps.event.addListener(clusterMarker, 'click', () => {
+          justClickedMarkerRef.current = true;
+          setTimeout(() => { justClickedMarkerRef.current = false; }, 400);
+
           expandSpider(cluster, clusterMarker, centerItem);
         });
 
         markersRef.current.push(clusterMarker);
       }
     });
-  }, [facilities, selectedFacility?.id, collapseSpider, onSelectFacility, panToWithOffset]);
+  }, [facilities, selectedFacility?.id, collapseSpider, panToWithOffset]);
 
+  // 스파이더파이어 방사형 펼침 기능
   const expandSpider = (cluster, clusterMarker, centerItem) => {
     const map = mapRef.current;
     if (!map) return;
@@ -281,7 +327,8 @@ export default function KakaoMap({
       position: new window.kakao.maps.LatLng(centerPos.lat, centerPos.lng),
       map: map,
       zIndex: 200,
-      content: '<div style="width: 12px; height: 12px; background: #3b82f6; border: 2px solid #ffffff; border-radius: 50%; box-shadow: 0 0 6px rgba(0,0,0,0.35);"></div>',
+      clickable: false,
+      content: '<div style="width: 14px; height: 14px; background: #3b82f6; border: 2.5px solid #ffffff; border-radius: 50%; box-shadow: 0 0 8px rgba(0,0,0,0.4);"></div>',
     });
     spiderDataRef.current.centerOverlay = centerOverlay;
 
@@ -294,8 +341,8 @@ export default function KakaoMap({
           new window.kakao.maps.LatLng(spiderPos.lat, spiderPos.lng),
         ],
         strokeColor: '#3b82f6',
-        strokeOpacity: 0.8,
-        strokeWeight: 2.2,
+        strokeOpacity: 0.85,
+        strokeWeight: 2.5,
         map: map,
       });
       spiderDataRef.current.lines.push(line);
@@ -315,21 +362,24 @@ export default function KakaoMap({
       });
 
       window.kakao.maps.event.addListener(spiderPin, 'click', () => {
+        justClickedMarkerRef.current = true;
+        setTimeout(() => { justClickedMarkerRef.current = false; }, 400);
+
         if (infoWindowRef.current) infoWindowRef.current.close();
         iw.open(map, spiderPin);
         infoWindowRef.current = iw;
-        panToWithOffset(new window.kakao.maps.LatLng(spiderPos.lat, spiderPos.lng), 90);
-        onSelectFacility(item);
+        panToWithOffset(new window.kakao.maps.LatLng(spiderPos.lat, spiderPos.lng), 80);
+        if (onSelectFacilityRef.current) onSelectFacilityRef.current(item);
       });
 
       spiderDataRef.current.markers.push({ marker: spiderPin, infoWindow: iw, item });
     });
 
-    onOpenCluster(cluster);
-    onToast(`🏢 밀집 시설 ${cluster.length}대가 펼쳐졌습니다. 핀이나 목록을 터치하세요.`);
+    if (onOpenCluster) onOpenCluster(cluster);
+    if (onToast) onToast(`🏢 밀집 시설 ${cluster.length}대가 방사형으로 펼쳐졌습니다.`);
   };
 
-  // 4. 도보 내비게이션 경로선 (Polyline) 및 실내 진입 점선 렌더링
+  // 4. 도보 내비게이션 경로선 (Polyline) 및 실내 진입 점선 렌더링 (다양한 좌표 형식 안전 파싱)
   useEffect(() => {
     if (!mapRef.current || !window.kakao?.maps) return;
 
@@ -345,44 +395,60 @@ export default function KakaoMap({
     }
 
     if (navRouteCoordinates && navRouteCoordinates.length > 0) {
-      const path = navRouteCoordinates.map(
-        (c) => new window.kakao.maps.LatLng(c[1], c[0])
-      );
+      const path = navRouteCoordinates.map((c) => {
+        if (Array.isArray(c) && c.length >= 2) {
+          const lat = parseFloat(c[1]);
+          const lon = parseFloat(c[0]);
+          if (!isNaN(lat) && !isNaN(lon)) return new window.kakao.maps.LatLng(lat, lon);
+        } else if (c && typeof c === 'object') {
+          const lat = parseFloat(c.lat);
+          const lon = parseFloat(c.lng || c.lon);
+          if (!isNaN(lat) && !isNaN(lon)) return new window.kakao.maps.LatLng(lat, lon);
+        }
+        return null;
+      }).filter(Boolean);
 
-      const polyline = new window.kakao.maps.Polyline({
-        path: path,
-        strokeWeight: 6,
-        strokeColor: '#2563eb',
-        strokeOpacity: 0.95,
-        strokeStyle: 'solid',
-        map: map,
-      });
-      routePolylineRef.current = polyline;
-
-      // 실외 도로망 종점부터 건물 내부 목적지까지 실내 진입 점선(Dashed) 연결
-      if (selectedFacility) {
-        const lastRoadPt = path[path.length - 1];
-        const targetPt = new window.kakao.maps.LatLng(selectedFacility.lat, selectedFacility.lon);
-        const dashLine = new window.kakao.maps.Polyline({
-          path: [lastRoadPt, targetPt],
-          strokeWeight: 4,
-          strokeColor: '#f97316',
-          strokeOpacity: 0.9,
-          strokeStyle: 'shortdash',
+      if (path.length >= 2) {
+        const polyline = new window.kakao.maps.Polyline({
+          path: path,
+          strokeWeight: 6,
+          strokeColor: '#2563eb',
+          strokeOpacity: 0.95,
+          strokeStyle: 'solid',
           map: map,
         });
-        indoorDashLineRef.current = dashLine;
+        routePolylineRef.current = polyline;
+
+        // 실외 도로망 종점부터 건물 내부 목적지까지 실내 진입 점선(Dashed) 연결
+        if (selectedFacility && !isNaN(selectedFacility.lat) && !isNaN(selectedFacility.lon)) {
+          const lastRoadPt = path[path.length - 1];
+          const targetPt = new window.kakao.maps.LatLng(selectedFacility.lat, selectedFacility.lon);
+          const dashLine = new window.kakao.maps.Polyline({
+            path: [lastRoadPt, targetPt],
+            strokeWeight: 4,
+            strokeColor: '#f97316',
+            strokeOpacity: 0.9,
+            strokeStyle: 'shortdash',
+            map: map,
+          });
+          indoorDashLineRef.current = dashLine;
+        }
+
+        const bounds = new window.kakao.maps.LatLngBounds();
+        path.forEach((pt) => bounds.extend(pt));
+        if (selectedFacility && !isNaN(selectedFacility.lat) && !isNaN(selectedFacility.lon)) {
+          bounds.extend(new window.kakao.maps.LatLng(selectedFacility.lat, selectedFacility.lon));
+        }
+        map.setBounds(bounds);
       }
 
-      const bounds = new window.kakao.maps.LatLngBounds();
-      path.forEach((pt) => bounds.extend(pt));
-      if (selectedFacility) {
-        bounds.extend(new window.kakao.maps.LatLng(selectedFacility.lat, selectedFacility.lon));
-      }
-      map.setBounds(bounds);
+      // 지도 레이아웃 리프레시 (타일 깨짐 원천 방지)
       setTimeout(() => {
-        if (mapRef.current) mapRef.current.panBy(0, 70);
-      }, 50);
+        if (mapRef.current) {
+          mapRef.current.relayout();
+          mapRef.current.panBy(0, 50);
+        }
+      }, 100);
     }
   }, [navRouteCoordinates, selectedFacility]);
 
@@ -395,13 +461,13 @@ export default function KakaoMap({
     const pos = new window.kakao.maps.LatLng(userCoords.lat, userCoords.lon);
     panToWithOffset(pos, 60);
     mapRef.current.setLevel(3);
-    onToast('📍 내 위치로 지도를 이동하고 GPS를 갱신했습니다.');
+    if (onToast) onToast('📍 내 위치로 지도를 이동하고 GPS를 갱신했습니다.');
   };
 
   const handleReSearchArea = () => {
     if (!mapRef.current) return;
     const center = mapRef.current.getCenter();
-    onReSearch(center.getLat(), center.getLng());
+    if (onReSearch) onReSearch(center.getLat(), center.getLng());
   };
 
   const handleToggleMapLayer = () => {
@@ -410,10 +476,10 @@ export default function KakaoMap({
     setIsSkyview(nextSkyview);
     if (nextSkyview) {
       mapRef.current.setMapTypeId(window.kakao.maps.MapTypeId.HYBRID);
-      onToast('스카이뷰(위성사진)로 전환했습니다.');
+      if (onToast) onToast('스카이뷰(위성사진)로 전환했습니다.');
     } else {
       mapRef.current.setMapTypeId(window.kakao.maps.MapTypeId.ROADMAP);
-      onToast('일반 지도로 전환했습니다.');
+      if (onToast) onToast('일반 지도로 전환했습니다.');
     }
   };
 
@@ -421,7 +487,7 @@ export default function KakaoMap({
     <>
       <div id="mainMap" ref={mapContainerRef} className="map-view" />
 
-      {/* 우측 상단 플로팅 툴바 (FAB) - Zen Mode 시 페이드 아웃 */}
+      {/* 우측 상단 플로팅 툴바 (FAB) - Zen Mode 시 부드럽게 페이드 아웃 */}
       <div className={`map-fab-group ${isZenMode ? 'zen-hidden' : ''}`}>
         <button
           type="button"
