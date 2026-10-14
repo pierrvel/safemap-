@@ -17,7 +17,10 @@ import {
   fetchPedestrianDirections,
   fetchRouteMatrix,
   submitReport,
+  submitCheckin,
 } from './services/api';
+
+const CACHE_KEY = 'safemap_cached_facilities_v1';
 
 export default function App() {
   const [config, setConfig] = useState(null);
@@ -26,6 +29,7 @@ export default function App() {
 
   const [facilities, setFacilities] = useState([]);
   const [stats, setStats] = useState(null);
+  const [backup24h, setBackup24h] = useState(null);
   const [selectedFacility, setSelectedFacility] = useState(null);
 
   // 내비게이션 상태
@@ -33,15 +37,18 @@ export default function App() {
   const [navTarget, setNavTarget] = useState(null);
   const [navData, setNavData] = useState(null);
 
+  // 3단 스냅 바텀시트 상태 ('minimized' | 'peek' | 'expanded')
+  const [sheetSnap, setSheetSnap] = useState('peek');
+
+  // Emergency Zen Mode (길안내 또는 지도 드래그 시 상단바/FAB 숨김)
+  const [isZenMode, setIsZenMode] = useState(false);
+
   // 모달 및 토스트 상태
   const [clusterModalData, setClusterModalData] = useState(null);
   const [reportModalData, setReportModalData] = useState(null);
   const [showStatsModal, setShowStatsModal] = useState(false);
   const [showSystemInfoModal, setShowSystemInfoModal] = useState(false);
   const [toastMessage, setToastMessage] = useState(null);
-
-  // 바텀시트 접힘/펼침 상태
-  const [isSheetCollapsed, setIsSheetCollapsed] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
 
   // 1. 서버 환경설정 조회
@@ -62,30 +69,64 @@ export default function App() {
     setToastMessage(msg);
   }, []);
 
-  // 4. 시설 데이터 불러오기 및 도보 매트릭스 보정
+  // [Task 4: Stale-While-Revalidate] 앱 기동 시 0.1초 내 로컬 캐시 즉시 렌더링
+  useEffect(() => {
+    try {
+      const cachedStr = localStorage.getItem(CACHE_KEY);
+      if (cachedStr) {
+        const cached = JSON.parse(cachedStr);
+        if (cached?.facilities?.length > 0) {
+          setFacilities(cached.facilities);
+          setSelectedFacility(cached.facilities[0]);
+          if (cached.stats) setStats(cached.stats);
+          if (cached.backup24h) setBackup24h(cached.backup24h);
+        }
+      }
+    } catch (err) {
+      console.warn('Cache parsing failed:', err);
+    }
+  }, []);
+
+  // 4. [Task 4: 2-Phase 연산] 시설 데이터 로드 (Phase 1 즉시 렌더 ➔ Phase 2 상위 3개 비동기 OSRM 보정)
   const loadFacilities = useCallback(
     async (lat, lon, cat = category, verified = verifiedOnly) => {
       const res = await fetchFacilities(lat, lon, cat, verified);
       if (res.success && res.facilities) {
-        let loadedList = res.facilities;
+        const loadedList = res.facilities;
         setStats(res.stats || null);
+        setBackup24h(res.backup24h || null);
 
-        // 최단거리 1등 시설 기본 선택
+        // Phase 1: Haversine 거리 기준 정렬 목록 즉시 렌더 (FCP 및 체감속도 0.1초 미만)
         if (loadedList.length > 0) {
           setSelectedFacility(loadedList[0]);
         }
-
         setFacilities(loadedList);
 
-        // 도보 실거리 매트릭스 비동기 보정 (OSRM 도로망 연동)
+        // 캐시 업데이트 (Stale-While-Revalidate)
+        try {
+          localStorage.setItem(
+            CACHE_KEY,
+            JSON.stringify({
+              facilities: loadedList,
+              stats: res.stats,
+              backup24h: res.backup24h,
+              coords: { lat, lon },
+              timestamp: Date.now(),
+            })
+          );
+        } catch (e) {
+          console.warn('Failed to cache facilities:', e);
+        }
+
+        // Phase 2: 상위 3개 핵심 시설만 비동기 OSRM 정밀 보행 도로망 매트릭스 보정
         if (loadedList.length > 0) {
-          const matrixTargets = loadedList.slice(0, 15).map((f) => ({
+          const topCandidates = loadedList.slice(0, 3).map((f) => ({
             id: f.id,
             lat: f.lat,
             lon: f.lon,
           }));
 
-          fetchRouteMatrix({ lat, lon }, matrixTargets).then((matrixRes) => {
+          fetchRouteMatrix({ lat, lon }, topCandidates).then((matrixRes) => {
             if (matrixRes.success && matrixRes.results) {
               const resMap = new Map(matrixRes.results.map((r) => [r.id, r]));
               setFacilities((prev) =>
@@ -103,6 +144,20 @@ export default function App() {
                   return f;
                 })
               );
+
+              setSelectedFacility((prev) => {
+                if (!prev) return prev;
+                const m = resMap.get(prev.id);
+                return m
+                  ? {
+                      ...prev,
+                      realDistanceMeters: m.distanceMeters,
+                      realDurationSeconds: m.durationSeconds,
+                      realDurationText: m.walkingTimeText,
+                      isRealRoad: m.isRealRoad,
+                    }
+                  : prev;
+              });
             }
           });
         }
@@ -146,6 +201,7 @@ export default function App() {
         const newLon = parseFloat(top.x);
         setManualCoords(newLat, newLon);
         setIsSearching(false);
+        setSheetSnap('peek');
         showToast(`📍 '${top.place_name}'(으)로 이동했습니다.`);
       } else {
         const geocoder = new window.kakao.maps.services.Geocoder();
@@ -156,6 +212,7 @@ export default function App() {
             const newLat = parseFloat(top.y);
             const newLon = parseFloat(top.x);
             setManualCoords(newLat, newLon);
+            setSheetSnap('peek');
             showToast(`📍 '${top.address_name}'(으)로 이동했습니다.`);
           } else {
             showToast(`'${keyword}' 검색 결과가 없습니다.`);
@@ -170,7 +227,8 @@ export default function App() {
     if (!targetFacility) return;
     setNavTarget(targetFacility);
     setIsNavigating(true);
-    setIsSheetCollapsed(true);
+    setSheetSnap('minimized');
+    setIsZenMode(true); // Emergency Zen Mode 활성화
     showToast(`🚶 '${targetFacility.name}' 도보 길안내를 시작합니다.`);
 
     const res = await fetchPedestrianDirections(
@@ -192,7 +250,7 @@ export default function App() {
         durationMinutes: Math.max(1, Math.round(targetFacility.distanceMeters / 75)),
         steps: [
           {
-            instruction: `${targetFacility.name}를 향해 직선 도로망으로 이동하세요.`,
+            instruction: `${targetFacility.name}를 향해 도로망을 따라 이동하세요.`,
             distanceMeters: targetFacility.distanceMeters,
             type: 'arrive',
           },
@@ -205,7 +263,40 @@ export default function App() {
     setIsNavigating(false);
     setNavTarget(null);
     setNavData(null);
-    setIsSheetCollapsed(false);
+    setSheetSnap('peek');
+    setIsZenMode(false);
+  };
+
+  // [Task 3: Micro Check-in 원터치 상태 확인 핸들러]
+  const handleCheckin = async (facilityId, status, note = '') => {
+    const res = await submitCheckin(facilityId, status, note);
+    if (res.success) {
+      showToast(
+        status === 'NORMAL'
+          ? '👍 [정상 비치 확인]이 등록되었습니다. 실시간 안전망에 반영됩니다!'
+          : '⚠️ [잠김·고장 신고]가 등록되었습니다. 긴급 대체 경로를 권장합니다.'
+      );
+
+      // 낙관적 UI 업데이트
+      const updateCheckin = (fac) => {
+        if (!fac || fac.id !== facilityId) return fac;
+        const cur = fac.checkin || { normalCount: 0, issueCount: 0 };
+        return {
+          ...fac,
+          checkin: {
+            ...cur,
+            normalCount: status === 'NORMAL' ? (cur.normalCount || 0) + 1 : cur.normalCount,
+            issueCount: status === 'ISSUE' ? (cur.issueCount || 0) + 1 : cur.issueCount,
+            lastStatus: status,
+          },
+        };
+      };
+
+      setFacilities((prev) => prev.map(updateCheckin));
+      setSelectedFacility((prev) => updateCheckin(prev));
+    } else {
+      showToast(res.message || '상태 확인 접수에 실패했습니다.');
+    }
   };
 
   // 제보 제출 핸들러
@@ -242,7 +333,7 @@ export default function App() {
             selectedFacility={selectedFacility}
             onSelectFacility={(fac) => {
               setSelectedFacility(fac);
-              setIsSheetCollapsed(false);
+              setSheetSnap('peek');
             }}
             onOpenCluster={(cluster) => setClusterModalData(cluster)}
             navRouteCoordinates={navData?.coordinates || null}
@@ -250,10 +341,14 @@ export default function App() {
               setManualCoords(newLat, newLon);
               showToast('현재 화면 중심으로 안전시설을 다시 검색합니다.');
             }}
-            onToggleSheet={() => setIsSheetCollapsed((prev) => !prev)}
+            onToggleSheet={() => {
+              setSheetSnap((prev) => (prev === 'minimized' ? 'peek' : 'minimized'));
+            }}
             onToast={showToast}
             onUserLocationChange={handleUserLocationChange}
             onRequestGps={() => requestGps(true)}
+            isZenMode={isZenMode}
+            onZenModeChange={setIsZenMode}
           />
         ) : (
           <div className="map-view" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#f8fafc', padding: 24, textAlign: 'center' }}>
@@ -265,7 +360,7 @@ export default function App() {
           </div>
         )}
 
-        {/* 상단 플로팅 헤더, 검색창, 필터 칩 */}
+        {/* 상단 단일 슬림 플로팅 헤더, 검색창, 필터 칩 */}
         <Header
           category={category}
           onSelectCategory={handleSelectCategory}
@@ -280,6 +375,7 @@ export default function App() {
           onOpenStats={() => setShowStatsModal(true)}
           onOpenSystemInfo={() => setShowSystemInfoModal(true)}
           isSearching={isSearching}
+          isZenMode={isZenMode}
         />
 
         {/* 실시간 도보 내비게이션 플로팅 패널 */}
@@ -301,15 +397,17 @@ export default function App() {
         )}
       </main>
 
-      {/* 2. 하단 안전시설 바텀시트 */}
+      {/* 2. 하단 3단 스냅 바텀시트 */}
       <BottomSheet
         facilities={facilities}
         selectedFacility={selectedFacility}
         onSelectFacility={(fac) => setSelectedFacility(fac)}
-        isCollapsed={isSheetCollapsed}
-        onToggleCollapse={() => setIsSheetCollapsed((prev) => !prev)}
+        snapState={sheetSnap}
+        onSnapChange={setSheetSnap}
         onStartNavigation={handleStartNavigation}
         onOpenReport={(fac) => setReportModalData(fac)}
+        onCheckin={handleCheckin}
+        backup24h={backup24h}
       />
 
       {/* 3. 모달 창들 */}
@@ -320,7 +418,7 @@ export default function App() {
           onClose={() => setClusterModalData(null)}
           onSelectFacility={(fac) => {
             setSelectedFacility(fac);
-            setIsSheetCollapsed(false);
+            setSheetSnap('peek');
           }}
         />
       )}

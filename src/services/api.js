@@ -53,6 +53,21 @@ export async function fetchRouteMatrix(origin, destinations) {
   }
 }
 
+export async function submitCheckin(facilityId, status, note = '') {
+  try {
+    const res = await fetch('/api/checkin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ facilityId, status, note }),
+    });
+    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+    return await res.json();
+  } catch (err) {
+    console.error('Failed to submit checkin:', err);
+    return { success: false, message: '상태 확인 접수 중 오류가 발생했습니다.' };
+  }
+}
+
 export async function submitReport(reportData) {
   try {
     const res = await fetch('/api/reports', {
@@ -67,3 +82,4 @@ export async function submitReport(reportData) {
     return { success: false, message: '제보 접수 중 네트워크 오류가 발생했습니다.' };
   }
 }
+

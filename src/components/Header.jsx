@@ -11,6 +11,7 @@ export default function Header({
   onOpenStats,
   onOpenSystemInfo,
   isSearching,
+  isZenMode,
 }) {
   const [keyword, setKeyword] = useState('');
 
@@ -21,42 +22,20 @@ export default function Header({
   };
 
   return (
-    <div className="top-floating-bar">
-      {/* 상단 헤더 알약 */}
-      <header className="header-pill">
-        <div className="brand">
+    <div className={`top-floating-bar ${isZenMode ? 'zen-hidden' : ''}`}>
+      {/* 1. 단일 슬림 통합 검색 & 브랜드 바 (44px) */}
+      <div className="slim-unified-bar">
+        <div className="slim-brand" onClick={onResetGps} title="내 위치로 지도 리셋">
           <span className="live-dot"></span>
-          <span className="brand-title">세이프맵</span>
-          <span className="sdk-tag" id="sdkStatusBadge">카카오맵</span>
+          <span className="brand-logo">🚨</span>
+          <span className="brand-text">세이프맵</span>
         </div>
-        <div className="header-tools">
-          <button
-            type="button"
-            className="tool-btn"
-            onClick={onOpenStats}
-            title="데이터 검증 및 품질 리포트"
-          >
-            <span>📊</span>
-          </button>
-          <button
-            type="button"
-            className="tool-btn"
-            onClick={onOpenSystemInfo}
-            title="시스템 및 API 상태 정보"
-          >
-            <span>ℹ️</span>
-          </button>
-        </div>
-      </header>
 
-      {/* 위치 검색창 & 실제 GPS 이동 버튼 */}
-      <div className="search-box-pill">
-        <form onSubmit={handleSubmit} className="search-input-wrap" style={{ display: 'flex', flex: 1, alignItems: 'center' }}>
-          <span className="search-icon">🔍</span>
+        <form onSubmit={handleSubmit} className="slim-search-form">
           <input
             type="text"
-            className="search-input"
-            placeholder="장소·도로명·역 검색 (예: 강남역, 시청역, 광화문)"
+            className="slim-search-input"
+            placeholder="장소·도로명 검색 (예: 시범한양, 서현고)"
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
             autoComplete="off"
@@ -73,24 +52,35 @@ export default function Header({
           )}
           <button
             type="submit"
-            className="btn-search-go"
+            className="btn-slim-submit"
             disabled={isSearching}
-            title="입력 위치로 이동"
+            title="검색 위치로 이동"
           >
             <span>{isSearching ? '...' : '이동'}</span>
           </button>
         </form>
-        <button
-          type="button"
-          className="btn-gps-direct"
-          onClick={onResetGps}
-          title="실제 GPS 위치로 이동"
-        >
-          <span>📍 내 GPS</span>
-        </button>
+
+        <div className="slim-actions">
+          <button
+            type="button"
+            className="btn-slim-gps"
+            onClick={onResetGps}
+            title="내 GPS 위치로 이동"
+          >
+            <span>📍</span>
+          </button>
+          <button
+            type="button"
+            className="btn-slim-tool"
+            onClick={onOpenStats}
+            title="데이터 품질 리포트"
+          >
+            <span>📊</span>
+          </button>
+        </div>
       </div>
 
-      {/* 카테고리 필터 칩 & 안심 토글 바 */}
+      {/* 2. 컴팩트 가로 스크롤 필터 칩 & 안심 검증 토글 */}
       <div className="filter-chips-row">
         <div className="chips-group" role="tablist">
           <button
@@ -110,19 +100,19 @@ export default function Header({
           </button>
           <button
             type="button"
-            className={`chip ${category === 'extinguisher' ? 'active' : ''}`}
-            onClick={() => onSelectCategory('extinguisher')}
-          >
-            <span className="legend-color-dot ext"></span>
-            <span className="chip-icon">🧯</span>소화기 <b>{counts.extinguisher || 0}</b>
-          </button>
-          <button
-            type="button"
             className={`chip ${category === 'hydrant' ? 'active' : ''}`}
             onClick={() => onSelectCategory('hydrant')}
           >
             <span className="legend-color-dot hyd"></span>
             <span className="chip-icon">💧</span>소화전 <b>{counts.hydrant || 0}</b>
+          </button>
+          <button
+            type="button"
+            className={`chip ${category === 'extinguisher' ? 'active' : ''}`}
+            onClick={() => onSelectCategory('extinguisher')}
+          >
+            <span className="legend-color-dot ext"></span>
+            <span className="chip-icon">🧯</span>비상소화기 <b>{counts.extinguisher || 0}</b>
           </button>
         </div>
 
@@ -133,7 +123,7 @@ export default function Header({
             onChange={onToggleVerified}
           />
           <span className="verified-indicator"></span>
-          <span>안심검증</span>
+          <span>안심</span>
         </label>
       </div>
     </div>

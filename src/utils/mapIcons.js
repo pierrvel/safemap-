@@ -55,7 +55,7 @@ export function createCustomPinIcon(item, isNearest, isSelected) {
   return new window.kakao.maps.MarkerImage(
     'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg),
     new window.kakao.maps.Size(w, h),
-    { offset: new window.kakao.maps.Point(w / 2, h - 2) }
+    { offset: new window.kakao.maps.Point(w / 2, h) }
   );
 }
 
@@ -100,7 +100,7 @@ export function createClusterPinIcon(cluster, isNearest) {
   return new window.kakao.maps.MarkerImage(
     'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg),
     new window.kakao.maps.Size(w, h),
-    { offset: new window.kakao.maps.Point(w / 2, h - 2) }
+    { offset: new window.kakao.maps.Point(w / 2, h) }
   );
 }
 
@@ -127,8 +127,36 @@ export function createUserLocationIcon() {
   return new window.kakao.maps.MarkerImage(
     'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg),
     new window.kakao.maps.Size(w, h),
-    { offset: new window.kakao.maps.Point(w / 2, h - 2) }
+    { offset: new window.kakao.maps.Point(w / 2, h) }
   );
+}
+
+export function createFloatingPillContent(item) {
+  const place = item.buildPlace || item.buildAddress || item.name;
+  const isEstimated = item.locationConfidence === 'ESTIMATED';
+  const dotEmoji = isEstimated ? '🟡' : '🟢';
+
+  return `
+    <div style="
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 5px 11px;
+      background: #0f172a;
+      color: #ffffff;
+      border-radius: 9999px;
+      font-size: 11.5px;
+      font-weight: 700;
+      white-space: nowrap;
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+      border: 1.5px solid #38bdf8;
+      pointer-events: none;
+      transform: translateY(-8px);
+    ">
+      <span>${dotEmoji}</span>
+      <span style="max-width: 190px; overflow: hidden; text-overflow: ellipsis;">${place}</span>
+    </div>
+  `.trim();
 }
 
 export function createInfoWindowContent(item, isNearest) {

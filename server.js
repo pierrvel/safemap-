@@ -53,6 +53,25 @@ function saveReports() {
   }
 }
 
+// 원터치 시설 점검 및 확인(Micro Check-in) 데이터 저장소
+const CHECKINS_FILE = path.join(__dirname, 'checkins.json');
+let facilityCheckins = {};
+if (fs.existsSync(CHECKINS_FILE)) {
+  try {
+    facilityCheckins = JSON.parse(fs.readFileSync(CHECKINS_FILE, 'utf-8'));
+  } catch (e) {
+    facilityCheckins = {};
+  }
+}
+
+function saveCheckins() {
+  try {
+    fs.writeFileSync(CHECKINS_FILE, JSON.stringify(facilityCheckins, null, 2), 'utf-8');
+  } catch (e) {
+    console.error('Failed to save checkins:', e);
+  }
+}
+
 // 거리 계산 함수 (Haversine formula, 단위: meter)
 function calculateDistanceMeters(lat1, lon1, lat2, lon2) {
   const R = 6371000; // 지구 반지름 (m)
@@ -441,10 +460,16 @@ app.get(['/api/facilities', '/facilities'], async (req, res) => {
 
           const distMeters = calculateDistanceMeters(lat, lon, itemLat, itemLon);
 
+          const isAed24h = (raw.sunSttTme === '0000' && raw.sunEndTme === '2400') ||
+            (raw.satSttTme === '0000' && raw.satEndTme === '2400') ||
+            (raw.monSttTme === '0000' && raw.monEndTme === '2400');
+
           allFacilities.push({
             id: facilityId,
             category: 'aed',
             categoryName: '자동심장충격기 (AED)',
+            locationConfidence: 'HIGH', // 공인 정밀좌표 (국립중앙의료원 공공데이터)
+            available24h: isAed24h,
             name: `${raw.org || '공공시설'} AED`,
             org: raw.org || '관리기관 미상',
             buildAddress: raw.buildAddress || '주소 정보 없음',
@@ -462,6 +487,7 @@ app.get(['/api/facilities', '/facilities'], async (req, res) => {
             availableNow,
             reportsCount: reports.length,
             reports,
+            checkin: facilityCheckins[facilityId] || null,
             verified: !isAged && availableNow && !hasIssueReport,
           });
         }
@@ -513,10 +539,13 @@ app.get(['/api/facilities', '/facilities'], async (req, res) => {
 
         const distMeters = calculateDistanceMeters(lat, lon, itemLat, itemLon);
 
+        const isHydrant = raw.category === 'hydrant';
         allFacilities.push({
           id: facilityId,
           category: raw.category,
-          categoryName: raw.category === 'extinguisher' ? '소화기' : '비상소화장치/소화전',
+          categoryName: isHydrant ? '소화전 / 비상소화장치' : '보이는 소화기 / 비상소화기',
+          locationConfidence: isHydrant ? 'HIGH' : 'ESTIMATED', // 소화전: 공인 정밀좌표, 소화기: 주변 구역 좌표(상세위치 확인 필수)
+          available24h: true, // 옥외 소화전 및 공공 소방시설 상시 개방
           name: raw.name,
           org: raw.org,
           buildAddress: raw.buildAddress,
@@ -526,7 +555,7 @@ app.get(['/api/facilities', '/facilities'], async (req, res) => {
           distanceMeters: distMeters,
           walkingTime: getWalkingTimeText(distMeters),
           model: raw.pressureStatus || raw.waterPressure || '정상 규격',
-          mfg: raw.category === 'extinguisher' ? '한국소방산업기술원 인증' : '소방청 표준시설',
+          mfg: isHydrant ? '소방청 표준시설' : '한국소방산업기술원 인증',
           clerkTel: raw.contact || '119',
           installYear: raw.installYear,
           age: `${age}년`,
@@ -534,6 +563,7 @@ app.get(['/api/facilities', '/facilities'], async (req, res) => {
           availableNow: true,
           reportsCount: reports.length,
           reports,
+          checkin: facilityCheckins[facilityId] || null,
           verified: !isAged && !hasIssueReport,
         });
       }
@@ -542,9 +572,16 @@ app.get(['/api/facilities', '/facilities'], async (req, res) => {
     // 3. 최단거리 탐색 알고리즘 (거리 오름차순 정렬)
     allFacilities.sort((a, b) => a.distanceMeters - b.distanceMeters);
 
-    // 4. 최단거리 장비 플래그 지정
+    // 4. 최단거리 장비 및 2순위 24시간 백업 대안 장비 탐색
+    let backup24h = null;
     if (allFacilities.length > 0) {
       allFacilities[0].isNearest = true;
+
+      const first = allFacilities[0];
+      // 1순위 시설이 야간 미개방이거나 소화기(추정좌표) 또는 제보가 있는 경우 24시간 공인 시설을 대안으로 제공
+      if (!first.availableNow || first.category === 'extinguisher' || first.reportsCount > 0) {
+        backup24h = allFacilities.slice(1).find(f => f.availableNow && f.available24h && f.category !== 'extinguisher' && f.reportsCount === 0) || null;
+      }
     }
 
     stats.finalUsableCount = allFacilities.length;
@@ -554,12 +591,49 @@ app.get(['/api/facilities', '/facilities'], async (req, res) => {
       userLocation: { lat, lon },
       stats,
       nearest: allFacilities.length > 0 ? allFacilities[0] : null,
+      backup24h,
       facilities: allFacilities,
     });
   } catch (error) {
     console.error('Error fetching facilities:', error);
     res.status(500).json({ success: false, error: error.message });
   }
+});
+
+// 원터치 시설 상태 확인 (Micro Check-in) API
+app.post(['/api/checkin', '/checkin'], (req, res) => {
+  const { facilityId, status, note } = req.body;
+  if (!facilityId || !status) {
+    return res.status(400).json({ success: false, message: '시설 ID와 상태가 필요합니다.' });
+  }
+
+  const prev = facilityCheckins[facilityId] || { normalCount: 0, issueCount: 0 };
+  if (status === 'NORMAL') {
+    prev.normalCount = (prev.normalCount || 0) + 1;
+    prev.lastNormalAt = new Date().toISOString();
+  } else {
+    prev.issueCount = (prev.issueCount || 0) + 1;
+    prev.lastIssueAt = new Date().toISOString();
+    prev.lastIssueNote = note || '잠김 또는 고장 신고';
+  }
+  prev.lastStatus = status;
+  prev.lastUpdated = new Date().toISOString();
+
+  facilityCheckins[facilityId] = prev;
+  saveCheckins();
+
+  res.json({
+    success: true,
+    message: status === 'NORMAL' ? '정상 비치 확인이 접수되었습니다. 다른 시민들에게 신뢰 정보로 공유됩니다.' : '잠김/고장 신고가 접수되었습니다.',
+    checkin: prev,
+  });
+});
+
+app.get(['/api/checkins', '/checkins'], (req, res) => {
+  res.json({
+    success: true,
+    checkins: facilityCheckins,
+  });
 });
 
 // 사용자 제보 등록 API (연구계획서: 실제로 없는 경우가 있을 수 있으므로 제보 시스템 구축)
