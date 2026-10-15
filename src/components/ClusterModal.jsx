@@ -11,8 +11,7 @@ export default function ClusterModal({
   const locTitle = cluster[0].org || cluster[0].buildAddress || '해당 위치';
 
   const getCatIcon = (cat) => {
-    if (cat === 'extinguisher') return '🧯';
-    if (cat === 'hydrant') return '💧';
+    if (cat === 'shelter') return '🛡️';
     return '⚡';
   };
 
@@ -21,7 +20,7 @@ export default function ClusterModal({
       <div className="cluster-popup-header">
         <div className="cluster-header-text">
           <span>🏢</span>
-          <span>{locTitle} ({cluster.length}대 밀집)</span>
+          <span>{locTitle} ({cluster.length}개소 밀집)</span>
         </div>
         <button type="button" className="btn-close-cluster" onClick={onClose} title="닫기">&times;</button>
       </div>

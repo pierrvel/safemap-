@@ -313,8 +313,7 @@ export default function App() {
   const counts = {
     total: facilities.length,
     aed: facilities.filter((f) => f.category === 'aed').length,
-    extinguisher: facilities.filter((f) => f.category === 'extinguisher').length,
-    hydrant: facilities.filter((f) => f.category === 'hydrant').length,
+    shelter: facilities.filter((f) => f.category === 'shelter').length,
   };
 
   const handleUserLocationChange = useCallback((newLat, newLon) => {

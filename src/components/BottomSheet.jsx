@@ -22,10 +22,8 @@ export default function BottomSheet({
 
   const getCategoryInfo = (cat) => {
     switch (cat) {
-      case 'extinguisher':
-        return { label: '보이는 소화기', badgeClass: 'extinguisher', icon: '🧯' };
-      case 'hydrant':
-        return { label: '소화전/비상소화장치', badgeClass: 'hydrant', icon: '💧' };
+      case 'shelter':
+        return { label: '민방위 대피소', badgeClass: 'shelter', icon: '🛡️' };
       default:
         return { label: '자동심장충격기 (AED)', badgeClass: 'aed', icon: '⚡' };
     }
@@ -231,8 +229,8 @@ export default function BottomSheet({
                 </div>
               </div>
 
-              {/* 2순위 24시간 백업 대안 시설 안내 배너 (야간 미개방 또는 추정좌표 시) */}
-              {backup24h && backup24h.id !== currentItem.id && (!currentItem.availableNow || currentItem.category === 'extinguisher' || currentItem.reportsCount > 0) && (
+              {/* 2순위 24시간 백업 대안 시설 안내 배너 (야간 미개방 또는 이상 제보 시) */}
+              {backup24h && backup24h.id !== currentItem.id && (!currentItem.availableNow || currentItem.reportsCount > 0) && (
                 <div className="backup-24h-banner">
                   <div className="backup-icon">🌙</div>
                   <div className="backup-info">
@@ -285,19 +283,36 @@ export default function BottomSheet({
                 </div>
               </div>
 
-              {/* 장비 스펙 메타 정보 */}
+              {/* 장비/시설 스펙 메타 정보 */}
               <div className="hero-meta-row">
                 <span className="meta-txt">{currentItem.buildAddress || '-'}</span>
                 <span className="meta-dot">·</span>
                 <span className="meta-txt">{currentItem.org || '-'}</span>
-                <span className="meta-dot">·</span>
-                <span className="meta-txt">
-                  {currentItem.installYear ? `${currentItem.installYear}년 설치 (${currentItem.age || 0})` : '설치연도 미상'}
-                </span>
-                {currentItem.model && (
+                {currentItem.category === 'shelter' ? (
                   <>
                     <span className="meta-dot">·</span>
-                    <span className="meta-txt">{currentItem.model}</span>
+                    <span className="meta-txt">
+                      {currentItem.capacity > 0 ? `수용 ${currentItem.capacity.toLocaleString()}명` : '수용인원 미상'}
+                    </span>
+                    {currentItem.area > 0 && (
+                      <>
+                        <span className="meta-dot">·</span>
+                        <span className="meta-txt">{currentItem.area.toLocaleString()}㎡</span>
+                      </>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <span className="meta-dot">·</span>
+                    <span className="meta-txt">
+                      {currentItem.installYear ? `${currentItem.installYear}년 설치 (${currentItem.age || 0})` : '설치연도 미상'}
+                    </span>
+                    {currentItem.model && (
+                      <>
+                        <span className="meta-dot">·</span>
+                        <span className="meta-txt">{currentItem.model}</span>
+                      </>
+                    )}
                   </>
                 )}
               </div>

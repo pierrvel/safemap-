@@ -261,246 +261,101 @@ async function fetchAEDData(lat, lon) {
   return Array.isArray(items) ? items : [items];
 }
 
-// 화재 안전시설 (소화기 / 비상소화장치/소화전) 시뮬레이션 및 표준 데이터 생성
-// 공공데이터포털 전국소방용수시설표준데이터 및 소화시설 데이터 기반
-// 실제 소방청 및 지자체 소방용수시설/소방시설 표준데이터 기반 고정 좌표 데이터베이스
-// 사용자의 위치를 따라다니지 않고 지도상의 실제 물리적 위치에 영구 고정됩니다.
-const STATIC_FIRE_FACILITIES = [
-  // 1. 소화전 및 비상소화장치 (실제 도로명/인도/교차로 WGS84 절대 좌표)
-  {
-    id: 'HYD-SN-01',
-    category: 'hydrant',
-    name: '지상식 옥외소화전 (구경 65mm)',
-    org: '분당소방서 서현119안전센터',
-    buildAddress: '경기도 성남시 분당구 서현로 180번길 인도변',
-    buildPlace: '서현역 5번 출구 앞 보행자도로 적색 지상식 소화전',
-    wgs84Lat: 37.38520,
-    wgs84Lon: 127.12340,
-    installYear: 2020,
-    waterPressure: '방수압력 0.35MPa (정상)',
-    inspectionDate: '2026-08-01',
-    contact: '119 소방관서',
-  },
-  {
-    id: 'HYD-SN-02',
-    category: 'hydrant',
-    name: '지상식 옥외소화전 (구경 65mm)',
-    org: '분당소방서 서현119안전센터',
-    buildAddress: '경기도 성남시 분당구 중앙공원로 39 인도변',
-    buildPlace: '시범단지한양 정문 경비초소 맞은편 인도 적색 소화전',
-    wgs84Lat: 37.38240,
-    wgs84Lon: 127.12650,
-    installYear: 2021,
-    waterPressure: '방수압력 0.38MPa (정상)',
-    inspectionDate: '2026-07-15',
-    contact: '119 소방관서',
-  },
-  {
-    id: 'HYD-SN-03',
-    category: 'hydrant',
-    name: '비상소화장치함 (호스릴 일체형)',
-    org: '분당의용소방대 / 분당소방서',
-    buildAddress: '경기도 성남시 분당구 서현동 88 녹지대',
-    buildPlace: '분당중앙공원 산책로 입구 녹지대 적색 비상소화장치함',
-    wgs84Lat: 37.37910,
-    wgs84Lon: 127.12350,
-    installYear: 2022,
-    waterPressure: '호스 50m 완비 (출수압 정상)',
-    inspectionDate: '2026-06-12',
-    contact: '119 소방관서',
-  },
-  {
-    id: 'HYD-SN-04',
-    category: 'hydrant',
-    name: '지상식 옥외소화전 (구경 65mm)',
-    org: '분당소방서 서현119안전센터',
-    buildAddress: '경기도 성남시 분당구 서현일로 45',
-    buildPlace: '서현1동 행정복지센터 정문 좌측 보도블록',
-    wgs84Lat: 37.37945,
-    wgs84Lon: 127.12780,
-    installYear: 2019,
-    waterPressure: '방수압력 0.36MPa (정상)',
-    inspectionDate: '2026-05-20',
-    contact: '119 소방관서',
-  },
-  {
-    id: 'HYD-SN-05',
-    category: 'hydrant',
-    name: '지하식 소화전 (맨홀형)',
-    org: '분당소방서 서현119안전센터',
-    buildAddress: '경기도 성남시 분당구 서현로 192 교차로',
-    buildPlace: '서현사거리 횡단보도 진입로 황색 노면표시 내 맨홀',
-    wgs84Lat: 37.38380,
-    wgs84Lon: 127.12810,
-    installYear: 2018,
-    waterPressure: '지수밸브 정상 작동',
-    inspectionDate: '2026-04-18',
-    contact: '119 소방관서',
-  },
-  {
-    id: 'HYD-SN-06',
-    category: 'hydrant',
-    name: '지상식 옥외소화전 (구경 65mm)',
-    org: '분당소방서 수내119안전센터',
-    buildAddress: '경기도 성남시 분당구 서현로 210번길',
-    buildPlace: '서현고등학교 서측 보행자 전용도로 입구',
-    wgs84Lat: 37.37790,
-    wgs84Lon: 127.12580,
-    installYear: 2021,
-    waterPressure: '방수압력 0.35MPa (정상)',
-    inspectionDate: '2026-08-10',
-    contact: '119 소방관서',
-  },
-  {
-    id: 'HYD-SN-07',
-    category: 'hydrant',
-    name: '지상식 옥외소화전 (구경 65mm)',
-    org: '분당소방서 수내119안전센터',
-    buildAddress: '경기도 성남시 분당구 돌마로 482',
-    buildPlace: '효자촌 사거리 버스정류장 후방 10m 인도',
-    wgs84Lat: 37.37420,
-    wgs84Lon: 127.13150,
-    installYear: 2020,
-    waterPressure: '방수압력 0.34MPa (정상)',
-    inspectionDate: '2026-07-02',
-    contact: '119 소방관서',
-  },
-  {
-    id: 'HYD-SL-01',
-    category: 'hydrant',
-    name: '지상식 옥외소화전 (구경 65mm)',
-    org: '중부소방서 무교119안전센터',
-    buildAddress: '서울특별시 중구 세종대로 110',
-    buildPlace: '서울시청 본관 정문 우측 인도 화단 앞',
-    wgs84Lat: 37.56630,
-    wgs84Lon: 126.97790,
-    installYear: 2020,
-    waterPressure: '방수압력 0.40MPa (정상)',
-    inspectionDate: '2026-08-15',
-    contact: '119 소방관서',
-  },
+// 민방위 대피시설 전국 공공데이터 (행정안전부_민방위대피시설 조회서비스)
+let sheltersCache = null;
 
-  // 2. 소화기 (법정 공공기관 및 다중이용시설 실제 건물 고정 좌표)
-  {
-    id: 'EXT-SN-01',
-    category: 'extinguisher',
-    name: 'ABC 분말소화기 (3.3kg)',
-    org: '시범단지한양아파트 관리사무소',
-    buildAddress: '경기도 성남시 분당구 서현동 87',
-    buildPlace: '시범한양 관리사무소 1층 경비실 옆 벽면 거치대',
-    wgs84Lat: 37.38112,
-    wgs84Lon: 127.12530,
-    installYear: 2023,
-    pressureStatus: '정상 (녹색 범위)',
-    inspectionDate: '2026-03-15',
-    contact: '031-700-1114',
-  },
-  {
-    id: 'EXT-SN-02',
-    category: 'extinguisher',
-    name: 'ABC 분말소화기 (3.3kg)',
-    org: '분당올림픽스포츠센터',
-    buildAddress: '경기도 성남시 분당구 중앙공원로 35',
-    buildPlace: '스포츠센터 1층 인포메이션 데스크 우측 소화전함 하단',
-    wgs84Lat: 37.38210,
-    wgs84Lon: 127.12450,
-    installYear: 2022,
-    pressureStatus: '정상 (녹색 범위)',
-    inspectionDate: '2026-04-10',
-    contact: '031-708-7500',
-  },
-  {
-    id: 'EXT-SN-03',
-    category: 'extinguisher',
-    name: '이산화탄소(CO2) 소화기',
-    org: '서현1동 행정복지센터',
-    buildAddress: '경기도 성남시 분당구 서현일로 45',
-    buildPlace: '1층 민원실 출입문 우측 옥내소화전함 상단 거치대',
-    wgs84Lat: 37.37950,
-    wgs84Lon: 127.12710,
-    installYear: 2024,
-    pressureStatus: '정상',
-    inspectionDate: '2026-05-10',
-    contact: '031-729-7600',
-  },
-  {
-    id: 'EXT-SN-04',
-    category: 'extinguisher',
-    name: 'ABC 분말소화기 (3.3kg)',
-    org: '서현고등학교 행정실',
-    buildAddress: '경기도 성남시 분당구 서현로 210번길 40',
-    buildPlace: '본관 1층 중앙현관 신발장 맞은편 벽면 거치대',
-    wgs84Lat: 37.37750,
-    wgs84Lon: 127.12640,
-    installYear: 2023,
-    pressureStatus: '정상 (녹색 범위)',
-    inspectionDate: '2026-06-20',
-    contact: '031-702-8012',
-  },
-  {
-    id: 'EXT-SN-05',
-    category: 'extinguisher',
-    name: 'ABC 분말소화기 (3.3kg)',
-    org: '한양상가 번영회',
-    buildAddress: '경기도 성남시 분당구 중앙공원로 40',
-    buildPlace: '상가 1층 중앙 통로 엘리베이터 앞 소화기함',
-    wgs84Lat: 37.38040,
-    wgs84Lon: 127.12680,
-    installYear: 2022,
-    pressureStatus: '정상 (녹색 범위)',
-    inspectionDate: '2026-02-18',
-    contact: '031-701-4949',
-  },
-  {
-    id: 'EXT-SN-06',
-    category: 'extinguisher',
-    name: '청정소화약제 소화기 (Gas식)',
-    org: '분당우체국',
-    buildAddress: '경기도 성남시 분당구 백현로 97',
-    buildPlace: '우체국 1층 금융영업창구 옆 소방안전 거치대',
-    wgs84Lat: 37.38420,
-    wgs84Lon: 127.12150,
-    installYear: 2024,
-    pressureStatus: '정상',
-    inspectionDate: '2026-05-02',
-    contact: '031-705-0014',
-  },
-  {
-    id: 'EXT-SN-07',
-    category: 'extinguisher',
-    name: 'ABC 분말소화기 (3.3kg)',
-    org: '분당초등학교 행정실',
-    buildAddress: '경기도 성남시 분당구 불정로 379',
-    buildPlace: '1층 본관 행정실 및 당직실 앞 복도 벽면',
-    wgs84Lat: 37.38150,
-    wgs84Lon: 127.12180,
-    installYear: 2023,
-    pressureStatus: '정상 (녹색 범위)',
-    inspectionDate: '2026-04-25',
-    contact: '031-701-1393',
-  },
-  {
-    id: 'EXT-SL-01',
-    category: 'extinguisher',
-    name: 'ABC 분말소화기 (3.3kg)',
-    org: '서울특별시청 총무과',
-    buildAddress: '서울특별시 중구 세종대로 110',
-    buildPlace: '본관 1층 로비 종합안내데스크 뒤편 소화전함',
-    wgs84Lat: 37.56630,
-    wgs84Lon: 126.97790,
-    installYear: 2023,
-    pressureStatus: '정상 (녹색 범위)',
-    inspectionDate: '2026-08-01',
-    contact: '02-120',
+function getSheltersFilePath() {
+  const p1 = path.join(__dirname, 'data', 'shelters.json');
+  if (fs.existsSync(p1)) return p1;
+  const p2 = path.join(process.cwd(), 'data', 'shelters.json');
+  if (fs.existsSync(p2)) return p2;
+  const p3 = path.join(__dirname, '..', 'data', 'shelters.json');
+  if (fs.existsSync(p3)) return p3;
+  return null;
+}
+
+function getShelters() {
+  if (!sheltersCache) {
+    try {
+      const filePath = getSheltersFilePath();
+      if (filePath && fs.existsSync(filePath)) {
+        const raw = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+        sheltersCache = raw.map(arr => ({
+          id: arr[0],
+          name: arr[1],
+          buildAddress: arr[2],
+          floorType: arr[3],
+          capacity: arr[4],
+          area: arr[5],
+          lat: arr[6],
+          lon: arr[7],
+        }));
+      } else {
+        sheltersCache = [];
+      }
+    } catch (e) {
+      console.error('Failed to load shelters.json:', e);
+      sheltersCache = [];
+    }
   }
-];
+  return sheltersCache;
+}
 
-// 사용자 위치 기준 반경 내 실제 고정 소방시설 필터링 (최대 반경 3km 내 실제 시설만 노출)
-function getFireFacilities(centerLat, centerLon, maxRadiusMeters = 3000) {
-  return STATIC_FIRE_FACILITIES.filter(item => {
-    const dist = calculateDistanceMeters(centerLat, centerLon, item.wgs84Lat, item.wgs84Lon);
-    return dist <= maxRadiusMeters;
-  });
+// 사용자 위치 기준 반경 내 민방위 대피시설 탐색 (반경 5km 내 최대 30개소)
+function getNearbyShelters(centerLat, centerLon, maxRadiusMeters = 5000) {
+  const shelters = getShelters();
+  const deg = maxRadiusMeters / 100000;
+  const minLat = centerLat - deg;
+  const maxLat = centerLat + deg;
+  const minLon = centerLon - deg;
+  const maxLon = centerLon + deg;
+
+  const candidates = shelters.filter(s =>
+    s.lat >= minLat && s.lat <= maxLat && s.lon >= minLon && s.lon <= maxLon
+  );
+
+  const matched = [];
+  for (const s of candidates) {
+    const dist = calculateDistanceMeters(centerLat, centerLon, s.lat, s.lon);
+    if (dist <= maxRadiusMeters) {
+      const facilityId = s.id;
+      const reports = userReports.filter(r => r.facilityId === facilityId);
+      const hasIssueReport = reports.length > 0;
+      const capText = s.capacity > 0 ? `최대 수용 ${s.capacity.toLocaleString()}명` : '수용인원 미상';
+      const areaText = s.area > 0 ? ` (${s.area.toLocaleString()}㎡)` : '';
+
+      matched.push({
+        id: facilityId,
+        category: 'shelter',
+        categoryName: '민방위 대피소',
+        locationConfidence: 'HIGH', // 행정안전부 공인 정밀좌표
+        available24h: true, // 대피시설 상시대피 가능
+        availableNow: true,
+        name: s.name,
+        org: '행정안전부 민방위',
+        buildAddress: s.buildAddress,
+        buildPlace: `${s.floorType}대피소 · ${capText}${areaText}`,
+        lat: s.lat,
+        lon: s.lon,
+        distanceMeters: dist,
+        walkingTime: getWalkingTimeText(dist),
+        capacity: s.capacity,
+        area: s.area,
+        floorType: s.floorType,
+        clerkTel: '119 소방관서 / 1588-3650 재난상황실',
+        installYear: '공인 지정',
+        age: '운영중',
+        isAged: false,
+        reportsCount: reports.length,
+        reports,
+        checkin: facilityCheckins[facilityId] || null,
+        verified: !hasIssueReport,
+      });
+    }
+  }
+
+  matched.sort((a, b) => a.distanceMeters - b.distanceMeters);
+  return matched.slice(0, 30);
 }
 
 // 메인 시설 목록 API (전처리 및 최단거리 분석 적용)
@@ -638,91 +493,32 @@ app.get(['/api/facilities', '/facilities'], async (req, res) => {
       }
     }
 
-    // 2. 소화기 및 소화전 데이터 수집 및 전처리
-    if (categoryFilter === 'all' || categoryFilter === 'extinguisher' || categoryFilter === 'hydrant') {
-      const fireItems = getFireFacilities(lat, lon);
-      const filteredFireItems = fireItems.filter(item => {
-        if (categoryFilter === 'extinguisher' && item.category !== 'extinguisher') return false;
-        if (categoryFilter === 'hydrant' && item.category !== 'hydrant') return false;
-        return true;
-      });
+    // 2. 민방위 대피소 데이터 수집 (행정안전부_민방위대피시설 조회서비스 기반)
+    if (categoryFilter === 'all' || categoryFilter === 'shelter') {
+      const shelterItems = getNearbyShelters(lat, lon);
+      stats.totalCollected += shelterItems.length;
 
-      stats.totalCollected += filteredFireItems.length;
-
-      for (const raw of filteredFireItems) {
-        const itemLat = parseFloat(raw.wgs84Lat);
-        const itemLon = parseFloat(raw.wgs84Lon);
-
-        // 좌표 검증
-        if (isNaN(itemLat) || isNaN(itemLon)) {
-          stats.invalidCoordsRemoved++;
+      for (const item of shelterItems) {
+        if (verifiedOnly && !item.verified) {
+          stats.userReportedExcluded++;
           continue;
         }
-
-        const currentYear = new Date().getFullYear();
-        const age = currentYear - raw.installYear;
-        // 소화기 내구연한: 10년 (소방시설법 기준)
-        const isAged = raw.category === 'extinguisher' && age >= 10;
-
-        const facilityId = raw.id;
-        const reports = userReports.filter(r => r.facilityId === facilityId);
-        const hasIssueReport = reports.length > 0;
-
-        if (verifiedOnly) {
-          if (isAged) {
-            stats.agedEquipmentFiltered++;
-            continue;
-          }
-          if (hasIssueReport) {
-            stats.userReportedExcluded++;
-            continue;
-          }
-        }
-
-        const distMeters = calculateDistanceMeters(lat, lon, itemLat, itemLon);
-
-        const isHydrant = raw.category === 'hydrant';
-        allFacilities.push({
-          id: facilityId,
-          category: raw.category,
-          categoryName: isHydrant ? '소화전 / 비상소화장치' : '보이는 소화기 / 비상소화기',
-          locationConfidence: isHydrant ? 'HIGH' : 'ESTIMATED', // 소화전: 공인 정밀좌표, 소화기: 주변 구역 좌표(상세위치 확인 필수)
-          available24h: true, // 옥외 소화전 및 공공 소방시설 상시 개방
-          name: raw.name,
-          org: raw.org,
-          buildAddress: raw.buildAddress,
-          buildPlace: raw.buildPlace,
-          lat: itemLat,
-          lon: itemLon,
-          distanceMeters: distMeters,
-          walkingTime: getWalkingTimeText(distMeters),
-          model: raw.pressureStatus || raw.waterPressure || '정상 규격',
-          mfg: isHydrant ? '소방청 표준시설' : '한국소방산업기술원 인증',
-          clerkTel: raw.contact || '119',
-          installYear: raw.installYear,
-          age: `${age}년`,
-          isAged,
-          availableNow: true,
-          reportsCount: reports.length,
-          reports,
-          checkin: facilityCheckins[facilityId] || null,
-          verified: !isAged && !hasIssueReport,
-        });
+        allFacilities.push(item);
       }
     }
 
     // 3. 최단거리 탐색 알고리즘 (거리 오름차순 정렬)
     allFacilities.sort((a, b) => a.distanceMeters - b.distanceMeters);
 
-    // 4. 최단거리 장비 및 2순위 24시간 백업 대안 장비 탐색
+    // 4. 최단거리 시설 및 2순위 24시간 백업 대안 시설 탐색
     let backup24h = null;
     if (allFacilities.length > 0) {
       allFacilities[0].isNearest = true;
 
       const first = allFacilities[0];
-      // 1순위 시설이 야간 미개방이거나 소화기(추정좌표) 또는 제보가 있는 경우 24시간 공인 시설을 대안으로 제공
-      if (!first.availableNow || first.category === 'extinguisher' || first.reportsCount > 0) {
-        backup24h = allFacilities.slice(1).find(f => f.availableNow && f.available24h && f.category !== 'extinguisher' && f.reportsCount === 0) || null;
+      // 1순위 시설이 야간 미개방이거나 고장 제보가 있는 경우 24시간 상시 가용 시설을 대안으로 제공
+      if (!first.availableNow || first.reportsCount > 0) {
+        backup24h = allFacilities.slice(1).find(f => f.availableNow && f.available24h && f.reportsCount === 0) || null;
       }
     }
 

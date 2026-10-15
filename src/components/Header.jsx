@@ -100,23 +100,15 @@ export default function Header({
           </button>
           <button
             type="button"
-            className={`chip ${category === 'hydrant' ? 'active' : ''}`}
-            onClick={() => onSelectCategory('hydrant')}
+            className={`chip ${category === 'shelter' ? 'active' : ''}`}
+            onClick={() => onSelectCategory('shelter')}
           >
-            <span className="legend-color-dot hyd"></span>
-            <span className="chip-icon">💧</span>소화전 <b>{counts.hydrant || 0}</b>
-          </button>
-          <button
-            type="button"
-            className={`chip ${category === 'extinguisher' ? 'active' : ''}`}
-            onClick={() => onSelectCategory('extinguisher')}
-          >
-            <span className="legend-color-dot ext"></span>
-            <span className="chip-icon">🧯</span>비상소화기 <b>{counts.extinguisher || 0}</b>
+            <span className="legend-color-dot shelter"></span>
+            <span className="chip-icon">🛡️</span>민방위 대피소 <b>{counts.shelter || 0}</b>
           </button>
         </div>
 
-        <label className="verified-pill" title="10년 경과 노후 소화기, 미점검/야간폐쇄 AED 제외">
+        <label className="verified-pill" title="고장 제보 또는 점검 필요 시설 제외">
           <input
             type="checkbox"
             checked={verifiedOnly}

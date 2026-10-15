@@ -16,18 +16,16 @@ export function createCustomPinIcon(item, isNearest, isSelected) {
   let bgColor = '#ef4444';
   let iconEmoji = '⚡';
   let catText = 'AED';
+  let badgeBg = '#ef4444';
 
-  if (item.category === 'extinguisher') {
-    bgColor = '#f97316';
-    iconEmoji = '🧯';
-    catText = '소화기';
-  } else if (item.category === 'hydrant') {
-    bgColor = '#2563eb';
-    iconEmoji = '💧';
-    catText = '소화전';
+  if (item.category === 'shelter') {
+    bgColor = '#f59e0b'; // 선명한 민방위 대피소 옐로우/골드
+    iconEmoji = '🛡️';
+    catText = '대피소';
+    badgeBg = '#78350f'; // 옐로우 핀 위 고시인성 다크 앰버 배지
   }
 
-  const strokeColor = isSelected ? '#2563eb' : (isNearest ? '#f59e0b' : '#ffffff');
+  const strokeColor = isSelected ? '#2563eb' : (isNearest ? '#d97706' : '#ffffff');
   const strokeWidth = isSelected ? 3.5 : (isNearest ? 3 : 2);
   const scale = isNearest || isSelected ? 1.15 : 1.0;
 
@@ -48,7 +46,7 @@ export function createCustomPinIcon(item, isNearest, isSelected) {
           fill="${bgColor}" stroke="${strokeColor}" stroke-width="${strokeWidth}" filter="url(#p-sh-${item.id})" />
     <circle cx="18" cy="16.5" r="9.5" fill="#ffffff" />
     <text x="18" y="20.5" font-size="10.5" text-anchor="middle" font-family="'Apple Color Emoji','Segoe UI Emoji',sans-serif">${iconEmoji}</text>
-    <rect x="5.5" y="30.5" width="25" height="10" rx="5" fill="${bgColor}" stroke="#ffffff" stroke-width="1" />
+    <rect x="4" y="30.5" width="28" height="10" rx="5" fill="${badgeBg}" stroke="#ffffff" stroke-width="1" />
     <text x="18" y="38" font-size="7" font-weight="900" fill="#ffffff" text-anchor="middle" font-family="'Pretendard', sans-serif">${catText}</text>
   </svg>`.trim();
 
@@ -62,20 +60,16 @@ export function createCustomPinIcon(item, isNearest, isSelected) {
 export function createClusterPinIcon(cluster, isNearest) {
   const count = cluster.length;
   const hasAed = cluster.some(f => f.category === 'aed');
-  const hasExt = cluster.some(f => f.category === 'extinguisher');
-  const hasHyd = cluster.some(f => f.category === 'hydrant');
+  const hasShelter = cluster.some(f => f.category === 'shelter');
 
   let bgColor = '#7c3aed';
   let emoji = '🏢';
-  if (hasAed && !hasExt && !hasHyd) {
+  if (hasAed && !hasShelter) {
     bgColor = '#ef4444';
     emoji = '⚡';
-  } else if (!hasAed && hasExt && !hasHyd) {
-    bgColor = '#f97316';
-    emoji = '🧯';
-  } else if (!hasAed && !hasExt && hasHyd) {
-    bgColor = '#2563eb';
-    emoji = '💧';
+  } else if (!hasAed && hasShelter) {
+    bgColor = '#f59e0b';
+    emoji = '🛡️';
   }
 
   const w = 40;
@@ -94,7 +88,7 @@ export function createClusterPinIcon(cluster, isNearest) {
     <circle cx="20" cy="17" r="11" fill="#ffffff" />
     <text x="20" y="21" font-size="11" text-anchor="middle" font-family="'Apple Color Emoji','Segoe UI Emoji',sans-serif">${emoji}</text>
     <rect x="7" y="32" width="26" height="11" rx="5.5" fill="#0f172a" stroke="#ffffff" stroke-width="1.2" />
-    <text x="20" y="40.5" font-size="7.5" font-weight="900" fill="#ffffff" text-anchor="middle" font-family="'Pretendard', sans-serif">${count}대 밀집</text>
+    <text x="20" y="40.5" font-size="7.5" font-weight="900" fill="#ffffff" text-anchor="middle" font-family="'Pretendard', sans-serif">${count}개소 밀집</text>
   </svg>`.trim();
 
   return new window.kakao.maps.MarkerImage(
@@ -166,16 +160,11 @@ export function createInfoWindowContent(item, isNearest) {
   let catBg = '#fee2e2';
   let catColor = '#dc2626';
 
-  if (item.category === 'extinguisher') {
-    catIcon = '🧯';
-    catText = '소화기 (소화시설)';
-    catBg = '#ffedd5';
-    catColor = '#ea580c';
-  } else if (item.category === 'hydrant') {
-    catIcon = '💧';
-    catText = '소화전 (소방용수)';
-    catBg = '#eff6ff';
-    catColor = '#2563eb';
+  if (item.category === 'shelter') {
+    catIcon = '🛡️';
+    catText = '민방위 대피소';
+    catBg = '#fef3c7';
+    catColor = '#b45309';
   }
 
   const distM = item.realDistanceMeters || item.distanceMeters || 0;

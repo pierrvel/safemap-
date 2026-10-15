@@ -495,14 +495,9 @@ body, html {
   box-shadow: 0 0 0 1.5px rgba(239, 68, 68, 0.3);
 }
 
-.legend-color-dot.ext {
-  background: #f97316;
-  box-shadow: 0 0 0 1.5px rgba(249, 115, 22, 0.3);
-}
-
-.legend-color-dot.hyd {
-  background: #2563eb;
-  box-shadow: 0 0 0 1.5px rgba(37, 99, 235, 0.3);
+.legend-color-dot.shelter {
+  background: #f59e0b;
+  box-shadow: 0 0 0 1.5px rgba(245, 158, 11, 0.4);
 }
 
 .legend-color-dot.user {
@@ -1315,8 +1310,8 @@ body, html {
 }
 
 .card-cat-badge.aed { background: #fee2e2; color: #dc2626; }
-.card-cat-badge.extinguisher { background: #ffedd5; color: #ea580c; }
-.card-cat-badge.hydrant { background: #eff6ff; color: #2563eb; }
+.card-cat-badge.shelter { background: #fef3c7; color: #b45309; }
+.cat-badge.shelter { background: #fef3c7; color: #b45309; }
 
 .card-facility-name {
   font-size: 0.88rem;
