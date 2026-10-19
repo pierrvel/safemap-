@@ -360,12 +360,60 @@ export default function App() {
             onZenModeChange={setIsZenMode}
           />
         ) : (
-          <div className="map-view" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#f8fafc', padding: 24, textAlign: 'center' }}>
-            <div style={{ width: 56, height: 56, borderRadius: '50%', background: '#eff6ff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28, marginBottom: 16 }}>🗺️</div>
-            <h3 style={{ fontSize: 18, fontWeight: 700, color: '#1e293b', marginBottom: 8 }}>카카오맵 활성화 중...</h3>
-            <p style={{ fontSize: 14, color: '#64748b', maxWidth: 360 }}>
-              {kakaoError || '서버 환경변수(KAKAO_MAP_API_KEY) 확인 및 지도 초기화를 진행하고 있습니다.'}
-            </p>
+          <div className="map-view" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#f8fafc', padding: 20, textAlign: 'center', zIndex: 10 }}>
+            {kakaoError ? (
+              <div style={{ background: '#ffffff', borderRadius: 16, padding: '24px 20px', maxWidth: 420, width: '100%', boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)', border: '1px solid #fee2e2' }}>
+                <div style={{ width: 52, height: 52, borderRadius: '50%', background: '#fef2f2', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 26, margin: '0 auto 14px' }}>⚠️</div>
+                <h3 style={{ fontSize: 17, fontWeight: 700, color: '#991b1b', marginBottom: 8 }}>카카오 지도 도메인 등록 필요</h3>
+                <p style={{ fontSize: 13, color: '#64748b', lineHeight: 1.5, marginBottom: 16 }}>
+                  카카오맵 보안 정책상 현재 도메인이 카카오 개발자 콘솔에 등록되어 있어야 지도가 정상 로드됩니다.
+                </p>
+                <div style={{ background: '#f1f5f9', borderRadius: 8, padding: '10px 12px', fontSize: 13, color: '#1e293b', fontWeight: 600, wordBreak: 'break-all', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 16 }}>
+                  <span>{typeof window !== 'undefined' ? window.location.origin : ''}</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (navigator.clipboard) {
+                        navigator.clipboard.writeText(window.location.origin);
+                        showToast('도메인 주소가 복사되었습니다.');
+                      }
+                    }}
+                    style={{ flexShrink: 0, padding: '6px 12px', fontSize: 12, borderRadius: 6, background: '#0284c7', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 600 }}
+                  >
+                    복사
+                  </button>
+                </div>
+                <div style={{ fontSize: 12, color: '#475569', textAlign: 'left', background: '#f8fafc', padding: '12px 14px', borderRadius: 8, lineHeight: 1.6, marginBottom: 16 }}>
+                  <strong>등록 방법 (30초 소요):</strong><br />
+                  1. <a href="https://developers.kakao.com/console/app" target="_blank" rel="noreferrer" style={{ color: '#0284c7', textDecoration: 'underline', fontWeight: 600 }}>카카오 개발자 콘솔</a> 접속<br />
+                  2. 앱 선택 &gt; <strong>플랫폼</strong> &gt; <strong>Web</strong><br />
+                  3. [사이트 도메인]에 위 주소 추가 후 저장
+                </div>
+                {typeof window !== 'undefined' && window.location.origin.includes('savelifemap-kc-d9f6') && (
+                  <a
+                    href="https://prompt-bismuth-avyohx5.vercel.app"
+                    style={{ display: 'block', padding: '12px 16px', background: '#059669', color: '#ffffff', borderRadius: 8, fontSize: 13, fontWeight: 700, textDecoration: 'none', marginBottom: 10, textAlign: 'center' }}
+                  >
+                    👉 이미 등록된 주소로 즉시 열기
+                  </a>
+                )}
+                <button
+                  type="button"
+                  onClick={() => window.location.reload()}
+                  style={{ width: '100%', padding: '10px 16px', background: '#f1f5f9', color: '#475569', borderRadius: 8, fontSize: 13, fontWeight: 600, border: '1px solid #cbd5e1', cursor: 'pointer' }}
+                >
+                  등록 완료 후 새로고침 🔄
+                </button>
+              </div>
+            ) : (
+              <div>
+                <div style={{ width: 56, height: 56, borderRadius: '50%', background: '#eff6ff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28, margin: '0 auto 16px' }}>🗺️</div>
+                <h3 style={{ fontSize: 18, fontWeight: 700, color: '#1e293b', marginBottom: 8 }}>카카오맵 활성화 중...</h3>
+                <p style={{ fontSize: 14, color: '#64748b', maxWidth: 360 }}>
+                  서버 환경변수 및 카카오 지도 SDK를 초기화하고 있습니다.
+                </p>
+              </div>
+            )}
           </div>
         )}
 

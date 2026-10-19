@@ -27,14 +27,23 @@ export function useKakaoLoader(appKey) {
         if (window.kakao && window.kakao.maps) {
           window.kakao.maps.load(() => {
             setLoaded(true);
+            setError(null);
           });
         } else {
-          setError('카카오맵 객체를 초기화할 수 없습니다.');
+          setError({
+            type: 'INIT_ERROR',
+            message: '카카오맵 객체를 초기화할 수 없습니다.',
+          });
         }
       };
 
       script.onerror = () => {
-        setError('카카오맵 SDK 스크립트 로드 실패. 인터넷 연결 또는 도메인 등록 상태를 확인하세요.');
+        const origin = typeof window !== 'undefined' ? window.location.origin : '';
+        setError({
+          type: 'DOMAIN_MISMATCH',
+          origin,
+          message: `카카오맵 SDK 스크립트 로드 실패. 현재 도메인(${origin})이 카카오 개발자 콘솔의 [Web 사이트 도메인]에 등록되지 않았습니다.`,
+        });
       };
 
       document.head.appendChild(script);
