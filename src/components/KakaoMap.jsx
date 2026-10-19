@@ -636,7 +636,7 @@ export default function KakaoMap({
 
         <button
           type="button"
-          className="fab-btn sheet-toggle"
+          className="fab-btn sheet-toggle mobile-only"
           title="정보 카드 접기 / 펼치기"
           onClick={onToggleSheet}
         >

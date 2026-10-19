@@ -23,7 +23,7 @@ export default function BottomSheet({
   const getCategoryInfo = (cat) => {
     switch (cat) {
       case 'shelter':
-        return { label: '민방위 대피소', badgeClass: 'shelter', icon: '🛡️' };
+        return { label: '대피소', badgeClass: 'shelter', icon: '🏠' };
       default:
         return { label: '자동심장충격기 (AED)', badgeClass: 'aed', icon: '⚡' };
     }
@@ -80,7 +80,7 @@ export default function BottomSheet({
 
   return (
     <section
-      className={`bottom-sheet ${snapState}`}
+      className={`bottom-sheet mobile-only ${snapState}`}
       id="facilitySheet"
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}

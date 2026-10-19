@@ -16,16 +16,16 @@ export function createCustomPinIcon(item, isNearest, isSelected) {
   let bgColor = '#ef4444';
   let iconEmoji = '⚡';
   let catText = 'AED';
-  let badgeBg = '#ef4444';
+  let badgeBg = '#dc2626';
 
   if (item.category === 'shelter') {
-    bgColor = '#f59e0b'; // 선명한 민방위 대피소 옐로우/골드
-    iconEmoji = '🛡️';
+    bgColor = '#10b981'; // 상쾌하고 신뢰감 있는 에메랄드 그린
+    iconEmoji = '🏠';
     catText = '대피소';
-    badgeBg = '#78350f'; // 옐로우 핀 위 고시인성 다크 앰버 배지
+    badgeBg = '#059669'; // 딥 그린 배지
   }
 
-  const strokeColor = isSelected ? '#2563eb' : (isNearest ? '#d97706' : '#ffffff');
+  const strokeColor = isSelected ? '#2563eb' : (isNearest ? '#f59e0b' : '#ffffff');
   const strokeWidth = isSelected ? 3.5 : (isNearest ? 3 : 2);
   const scale = isNearest || isSelected ? 1.15 : 1.0;
 
@@ -38,7 +38,7 @@ export function createCustomPinIcon(item, isNearest, isSelected) {
   <svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 36 46">
     <defs>
       <filter id="p-sh-${item.id}" x="-30%" y="-20%" width="160%" height="150%">
-        <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#000000" flood-opacity="0.32"/>
+        <feDropShadow dx="0" dy="3" stdDeviation="3" flood-color="#000000" flood-opacity="0.25"/>
       </filter>
     </defs>
     ${goldHalo}
@@ -99,29 +99,26 @@ export function createClusterPinIcon(cluster, isNearest) {
 }
 
 export function createUserLocationIcon() {
-  const w = 36;
-  const h = 46;
+  const size = 52;
   const svg = `
-  <svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 36 46">
+  <svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 52 52">
     <defs>
-      <filter id="u-sh" x="-30%" y="-20%" width="160%" height="150%">
-        <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#000000" flood-opacity="0.3"/>
+      <filter id="u-glow" x="-30%" y="-30%" width="160%" height="160%">
+        <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#2563eb" flood-opacity="0.3"/>
       </filter>
     </defs>
-    <circle cx="18" cy="17" r="15" fill="#3b82f6" fill-opacity="0.25" />
-    <path d="M 18 2 C 9.5 2, 3 8.8, 3 17.5 C 3 28, 18 44, 18 44 C 18 44, 33 28, 33 17.5 C 33 8.8, 26.5 2, 18 2 Z"
-          fill="#1d4ed8" stroke="#ffffff" stroke-width="2" filter="url(#u-sh)" />
-    <circle cx="18" cy="16.5" r="9.5" fill="#ffffff" />
-    <circle cx="18" cy="16.5" r="5" fill="#2563eb" />
-    <circle cx="18" cy="16.5" r="2" fill="#ffffff" />
-    <rect x="5.5" y="30.5" width="25" height="10" rx="5" fill="#1d4ed8" stroke="#ffffff" stroke-width="1" />
-    <text x="18" y="38" font-size="6.8" font-weight="900" fill="#ffffff" text-anchor="middle" font-family="'Pretendard', sans-serif">내 위치</text>
+    <!-- Outer radar ripple -->
+    <circle cx="26" cy="26" r="24" fill="#3b82f6" fill-opacity="0.16" />
+    <circle cx="26" cy="26" r="16" fill="#3b82f6" fill-opacity="0.25" stroke="#60a5fa" stroke-width="1.2" stroke-opacity="0.5" />
+    <!-- Core Blue Dot with white border -->
+    <circle cx="26" cy="26" r="8.5" fill="#2563eb" stroke="#ffffff" stroke-width="2.5" filter="url(#u-glow)" />
+    <circle cx="26" cy="26" r="3" fill="#ffffff" />
   </svg>`.trim();
 
   return new window.kakao.maps.MarkerImage(
     'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg),
-    new window.kakao.maps.Size(w, h),
-    { offset: new window.kakao.maps.Point(w / 2, h) }
+    new window.kakao.maps.Size(size, size),
+    { offset: new window.kakao.maps.Point(size / 2, size / 2) }
   );
 }
 
@@ -161,10 +158,10 @@ export function createInfoWindowContent(item, isNearest) {
   let catColor = '#dc2626';
 
   if (item.category === 'shelter') {
-    catIcon = '🛡️';
-    catText = '민방위 대피소';
-    catBg = '#fef3c7';
-    catColor = '#b45309';
+    catIcon = '🏠';
+    catText = '대피소';
+    catBg = '#d1fae5';
+    catColor = '#059669';
   }
 
   const distM = item.realDistanceMeters || item.distanceMeters || 0;

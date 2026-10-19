@@ -1,5 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import Header from './components/Header';
+import Sidebar from './components/Sidebar';
+import MapLegend from './components/MapLegend';
+import FloatingDetailCard from './components/FloatingDetailCard';
 import KakaoMap from './components/KakaoMap';
 import BottomSheet from './components/BottomSheet';
 import InAppNavigation from './components/InAppNavigation';
@@ -417,7 +420,29 @@ export default function App() {
           </div>
         )}
 
-        {/* 상단 단일 슬림 플로팅 헤더, 검색창, 필터 칩 */}
+        {/* 1. 데스크톱 플로팅 리퀴드 글래스 사이드바 (Apple Liquid Glass 스타일) */}
+        {!isNavigating && (
+          <Sidebar
+            category={category}
+            onSelectCategory={handleSelectCategory}
+            verifiedOnly={verifiedOnly}
+            onToggleVerified={handleToggleVerified}
+            counts={counts}
+            facilities={facilities}
+            selectedFacility={selectedFacility}
+            onSelectFacility={handleSelectFacility}
+            onSearch={handleSearch}
+            onResetGps={() => {
+              requestGps();
+              showToast('실제 GPS 위치로 지도를 재설정합니다.');
+            }}
+            onOpenStats={() => setShowStatsModal(true)}
+            onOpenSystemInfo={() => setShowSystemInfoModal(true)}
+            isSearching={isSearching}
+          />
+        )}
+
+        {/* 2. 모바일 상단 단일 슬림 플로팅 헤더, 검색창, 필터 칩 */}
         <Header
           category={category}
           onSelectCategory={handleSelectCategory}
@@ -434,6 +459,20 @@ export default function App() {
           isSearching={isSearching}
           isZenMode={isZenMode}
         />
+
+        {/* 3. 지도 하단 중앙 범례 알약 */}
+        <MapLegend isZenMode={isZenMode || isNavigating} />
+
+        {/* 4. 데스크톱 우측 하단 플로팅 시설 상세 카드 */}
+        {!isNavigating && selectedFacility && (
+          <FloatingDetailCard
+            facility={selectedFacility}
+            onClose={() => setSelectedFacility(null)}
+            onStartNavigation={handleStartNavigation}
+            onOpenReport={(fac) => setReportModalData(fac)}
+            isZenMode={isZenMode}
+          />
+        )}
 
         {/* 실시간 도보 내비게이션 플로팅 패널 */}
         {isNavigating && navTarget && (

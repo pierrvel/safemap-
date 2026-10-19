@@ -22,12 +22,12 @@ export default function Header({
   };
 
   return (
-    <div className={`top-floating-bar ${isZenMode ? 'zen-hidden' : ''}`}>
+    <div className={`top-floating-bar mobile-only ${isZenMode ? 'zen-hidden' : ''}`}>
       {/* 1. 단일 슬림 통합 검색 & 브랜드 바 (44px) */}
       <div className="slim-unified-bar">
         <div className="slim-brand" onClick={onResetGps} title="내 위치로 지도 리셋">
           <span className="live-dot"></span>
-          <span className="brand-logo">🚨</span>
+          <span className="brand-logo">🛡️</span>
           <span className="brand-text">세이프맵</span>
         </div>
 
@@ -35,7 +35,7 @@ export default function Header({
           <input
             type="text"
             className="slim-search-input"
-            placeholder="장소·도로명 검색 (예: 시범한양, 서현고)"
+            placeholder="시설명 또는 지역 검색"
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
             autoComplete="off"
@@ -104,7 +104,7 @@ export default function Header({
             onClick={() => onSelectCategory('shelter')}
           >
             <span className="legend-color-dot shelter"></span>
-            <span className="chip-icon">🛡️</span>민방위 대피소 <b>{counts.shelter || 0}</b>
+            <span className="chip-icon">🏠</span>대피소 <b>{counts.shelter || 0}</b>
           </button>
         </div>
 
