@@ -575,11 +575,13 @@ app.get(['/api/checkins', '/checkins'], (req, res) => {
 });
 
 // 사용자 제보 등록 API (연구계획서: 실제로 없는 경우가 있을 수 있으므로 제보 시스템 구축)
-app.post(['/api/reports', '/reports'], (req, res) => {
-  const { facilityId, facilityName, reportType, details, reporterName } = req.body;
+app.post(['/api/reports', '/api/report', '/reports', '/report'], (req, res) => {
+  const { facilityId, facilityName, reporterName } = req.body;
+  const reportType = req.body.reportType || req.body.issueType || 'ISSUE';
+  const details = req.body.details || req.body.description || '';
 
-  if (!facilityId || !reportType) {
-    return res.status(400).json({ success: false, message: '필수 입력 항목이 누락되었습니다.' });
+  if (!facilityId) {
+    return res.status(400).json({ success: false, message: '필수 입력 항목(facilityId)이 누락되었습니다.' });
   }
 
   const newReport = {

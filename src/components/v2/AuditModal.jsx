@@ -32,6 +32,8 @@ export default function AuditModal({ facility, isOpen, onClose, onSuccess }) {
           facilityId: facility.id,
           facilityName: facility.name,
           category: facility.category,
+          reportType: lockStatus === 'LOCKED' ? 'DAMAGED' : (powerStatus === 'ISSUE' ? 'DAMAGED' : 'EXPIRED'),
+          details: detailNote,
           issueType: lockStatus === 'LOCKED' ? 'LOCKED_DOOR' : (powerStatus === 'ISSUE' ? 'BATTERY_DEAD' : 'EXPIRED_PAD'),
           description: detailNote,
         });
