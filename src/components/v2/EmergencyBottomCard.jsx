@@ -147,7 +147,9 @@ export default function EmergencyBottomCard({
   const timeText = facility.realDurationText || facility.walkingTime || '약 1분';
   const isGolden = dist <= 300;
 
-  const isAvailableNow = facility.availableNow !== false;
+  const isAvailableNow = facility.availableNow === true;
+  const isUnavailableNow = facility.availableNow === false;
+  const isUnknownHours = facility.availableNow === null || facility.availableNow === undefined;
   const isCalibrated = facility.locationConfidence === 'CALIBRATED';
   const isExpandedFinal = sheetState === 'expanded' || isExpanded;
 
@@ -263,12 +265,18 @@ export default function EmergencyBottomCard({
               {isAed ? '⚡ AED' : '🏠 대피소'}
             </span>
 
-            {isAvailableNow ? (
+            {isAvailableNow && (
               <span className="v2-tag-status open">
                 <Clock size={11} /> 지금 이용 가능
               </span>
-            ) : (
-              <span className="v2-tag-status closed">🌙 야간 운영시간 외</span>
+            )}
+            {isUnavailableNow && (
+              <span className="v2-tag-status closed">🌙 이용 불가 (운영시간 외)</span>
+            )}
+            {isUnknownHours && (
+              <span className="v2-tag-status" style={{ background: '#f1f5f9', color: '#64748b' }}>
+                운영시간 미확인
+              </span>
             )}
 
             {isCachedView && (
@@ -434,7 +442,8 @@ export default function EmergencyBottomCard({
                   const itemDist = fac.realDistanceMeters || fac.distanceMeters || 0;
                   const itemTime = fac.realDurationText || fac.walkingTime || '약 1분';
                   const itemAed = fac.category === 'aed';
-                  const itemOpen = fac.availableNow !== false;
+                  const isItemOpen = fac.availableNow === true;
+                  const isItemClosed = fac.availableNow === false;
 
                   return (
                     <div
@@ -449,10 +458,12 @@ export default function EmergencyBottomCard({
                           </span>
                           <span className="v2-item-rank">{idx + 1}위</span>
                           <span className="v2-item-name">{fac.name}</span>
-                          {itemOpen ? (
+                          {isItemOpen ? (
                             <span className="v2-item-open-dot" title="지금 이용 가능">🟢</span>
+                          ) : isItemClosed ? (
+                            <span className="v2-item-closed-dot" title="야간/휴무 운영시간 외">🌙</span>
                           ) : (
-                            <span className="v2-item-closed-dot" title="야간 운영시간 외">🌙</span>
+                            <span className="v2-item-closed-dot" title="운영시간 미확인">⚪</span>
                           )}
                         </div>
 
@@ -462,7 +473,7 @@ export default function EmergencyBottomCard({
                         </div>
 
                         {fac.operatingHours && (
-                          <div className={`v2-item-hours-row ${itemOpen ? 'open' : 'closed'}`}>
+                          <div className={`v2-item-hours-row ${isItemOpen ? 'open' : (isItemClosed ? 'closed' : '')}`}>
                             <Clock size={10} />
                             <span>{fac.operatingHours}</span>
                           </div>

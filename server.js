@@ -194,81 +194,134 @@ function getKstNow() {
   return { day, hour, minute, currentTimeInt: hour * 100 + minute };
 }
 
-// 시간 문자열 포맷팅 (예: "0830" -> "08:30")
+// 시간 문자열 포맷팅 (예: 830 -> "08:30")
 function formatTimeStr(t) {
   if (t === undefined || t === null || t === '') return '';
   const s = String(t).padStart(4, '0');
   return `${s.slice(0, 2)}:${s.slice(2, 4)}`;
 }
 
-// AED별 운영시간 간결한 1줄 요약 생성
-function getOperatingHoursSummary(item) {
-  if (!item) return '상시 개방';
-
-  const monStt = item.monSttTme ? parseInt(item.monSttTme, 10) : 0;
-  const monEnd = item.monEndTme ? parseInt(item.monEndTme, 10) : 2400;
-
-  // 24시간 여부 체크
-  if ((monStt === 0 || isNaN(monStt)) && (monEnd >= 2400 || isNaN(monEnd)) && item.sunFifYon === 'Y') {
-    return '24시간 상시 개방';
-  }
-
-  // 평일 시간 체크 (월~금)
-  const stt = item.monSttTme || item.wedSttTme || item.friSttTme;
-  const end = item.monEndTme || item.wedEndTme || item.friEndTme;
-
-  if (stt && end) {
-    const sttFmt = formatTimeStr(stt);
-    const endFmt = formatTimeStr(end);
-    const hasWeekend = item.satSttTme || item.sunFifYon === 'Y';
-    if (hasWeekend) {
-      return `매일 ${sttFmt}~${endFmt}`;
-    }
-    return `평일 ${sttFmt}~${endFmt} (주말 휴무)`;
-  }
-
-  return '상시 이용 가능';
+function parseTimeField(val) {
+  if (val === undefined || val === null || val === '') return null;
+  const n = parseInt(val, 10);
+  if (isNaN(n)) return null;
+  if (n < 0 || n > 2400) return 'INVALID';
+  return n;
 }
 
-// 현재 시간 기준 개방 여부 확인 (KST 9시간 시차 완벽 보정)
-function isCurrentlyAvailable(item) {
-  if (!item) return true;
-
-  const { day, currentTimeInt } = getKstNow();
-
-  // 요일별 속성 매핑 (0: 일, 1: 월, 2: 화, 3: 수, 4: 목, 5: 금, 6: 토)
-  const dayPrefixes = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
-  const prefix = dayPrefixes[day];
-
-  // 일요일 이용 불가 처리
-  if (day === 0 && item['sunFifYon'] === 'N') {
-    return false;
+/**
+ * 🌟 [5] 24시간 여부, 운영시간 요약, 현재 개방 여부를 하나의 통합 함수에서 일관되게 계산
+ * - 모순 발생 원천 차단: 24시간 여부, 요약 문자열, 현재 개방 여부 일원화
+ * - 이상값(0~2400 범위 외)은 '원본 표기 확인 필요' 및 availableNow: null로 격리
+ * - 시간 정보 부재 시 '운영시간 정보 없음' 및 availableNow: null로 처리
+ */
+function calculateAedOperatingInfo(item) {
+  if (!item) {
+    return {
+      operatingHours: '운영시간 정보 없음',
+      available24h: false,
+      availableNow: null,
+    };
   }
 
-  // 토요일 미운영 처리 (주말 휴무 학교/관공서)
-  if (day === 6 && item['satSttTme'] === undefined && item['satEndTme'] === undefined) {
-    const monEnd = item.monEndTme ? parseInt(item.monEndTme, 10) : 2400;
-    if (monEnd < 2400) return false;
+  const monStt = parseTimeField(item.monSttTme);
+  const monEnd = parseTimeField(item.monEndTme);
+  const tueStt = parseTimeField(item.tueSttTme);
+  const tueEnd = parseTimeField(item.tueEndTme);
+  const wedStt = parseTimeField(item.wedSttTme);
+  const wedEnd = parseTimeField(item.wedEndTme);
+  const thuStt = parseTimeField(item.thuSttTme);
+  const thuEnd = parseTimeField(item.thuEndTme);
+  const friStt = parseTimeField(item.friSttTme);
+  const friEnd = parseTimeField(item.friEndTme);
+  const satStt = parseTimeField(item.satSttTme);
+  const satEnd = parseTimeField(item.satEndTme);
+  const sunStt = parseTimeField(item.sunSttTme);
+  const sunEnd = parseTimeField(item.sunEndTme);
+
+  const allTimes = [
+    monStt, monEnd, tueStt, tueEnd, wedStt, wedEnd,
+    thuStt, thuEnd, friStt, friEnd, satStt, satEnd, sunStt, sunEnd,
+  ];
+
+  // 1. 0000~2400 범위를 벗어난 이상값(예: 2500) 감지
+  if (allTimes.some((t) => t === 'INVALID')) {
+    return {
+      operatingHours: '원본 표기 확인 필요',
+      available24h: false,
+      availableNow: null,
+    };
   }
 
-  const rawStt = item[prefix + 'SttTme'];
-  const rawEnd = item[prefix + 'EndTme'];
+  // 2. 시간 정보가 전혀 없는 경우
+  if (allTimes.every((t) => t === null)) {
+    return {
+      operatingHours: '운영시간 정보 없음',
+      available24h: false,
+      availableNow: null,
+    };
+  }
 
-  // 시작/종료 시간이 비어있는 경우
-  if (!rawStt && !rawEnd) {
-    // 평일인데 특정 요일 필드가 비어있으면 월요일 시간으로 대체
-    if (day >= 1 && day <= 5 && item.monSttTme && item.monEndTme) {
-      const fallbackStt = parseInt(item.monSttTme, 10);
-      const fallbackEnd = parseInt(item.monEndTme, 10);
-      return currentTimeInt >= fallbackStt && currentTimeInt <= fallbackEnd;
+  // 3. 24시간 여부 확인: 평일/주말 모두 00:00~24:00인 경우
+  const isMon24 = monStt === 0 && monEnd === 2400;
+  const isSat24 = satStt === 0 && satEnd === 2400;
+  const isSun24 = sunStt === 0 && sunEnd === 2400;
+
+  if (isMon24 && isSat24 && isSun24) {
+    return {
+      operatingHours: '24시간 상시 개방',
+      available24h: true,
+      availableNow: true,
+    };
+  }
+
+  // 4. 일반 요약 문구 생성
+  let operatingHours = '운영시간 정보 없음';
+  if (monStt !== null && monEnd !== null) {
+    const hasSat = satStt !== null && satEnd !== null;
+    const hasSun = sunStt !== null && sunEnd !== null;
+    if (!hasSat && !hasSun) {
+      operatingHours = `평일 ${formatTimeStr(monStt)}~${formatTimeStr(monEnd)} (주말 휴무)`;
+    } else if (
+      hasSat &&
+      hasSun &&
+      satStt === monStt &&
+      satEnd === monEnd &&
+      sunStt === monStt &&
+      sunEnd === monEnd
+    ) {
+      operatingHours = `매일 ${formatTimeStr(monStt)}~${formatTimeStr(monEnd)}`;
+    } else if (hasSat) {
+      operatingHours = `평일 ${formatTimeStr(monStt)}~${formatTimeStr(monEnd)} (토 ${formatTimeStr(satStt)}~${formatTimeStr(satEnd)})`;
+    } else {
+      operatingHours = `평일 ${formatTimeStr(monStt)}~${formatTimeStr(monEnd)}`;
     }
-    return true; // 기본값 개방
+  } else if (satStt !== null && satEnd !== null) {
+    operatingHours = `주말 ${formatTimeStr(satStt)}~${formatTimeStr(satEnd)}`;
   }
 
-  const stt = parseInt(rawStt, 10) || 0;
-  const end = parseInt(rawEnd, 10) || 2400;
+  // 5. 현재 KST 시각 기준 개방 여부 판정
+  const { day, currentTimeInt } = getKstNow();
+  let availableNow = false;
 
-  return currentTimeInt >= stt && currentTimeInt <= end;
+  const dayStt = [sunStt, monStt, tueStt, wedStt, thuStt, friStt, satStt][day];
+  const dayEnd = [sunEnd, monEnd, tueEnd, wedEnd, thuEnd, friEnd, satEnd][day];
+
+  if (dayStt !== null && dayEnd !== null) {
+    availableNow = currentTimeInt >= dayStt && currentTimeInt <= dayEnd;
+  } else if (day >= 1 && day <= 5 && monStt !== null && monEnd !== null) {
+    // 평일이고 해당 요일 시간 없으면 월요일 시간 준용
+    availableNow = currentTimeInt >= monStt && currentTimeInt <= monEnd;
+  } else {
+    // 주말인데 시간이 없거나 일요일 미운영인 경우 이용 불가
+    availableNow = false;
+  }
+
+  return {
+    operatingHours,
+    available24h: false,
+    availableNow,
+  };
 }
 
 // 인메모리 지오코딩 캐시 (동일 주소/기관명 반복 조회 방지 및 초고속 0ms 응답 보장)
@@ -511,8 +564,11 @@ app.get(['/api/facilities', '/facilities'], async (req, res) => {
             const age = installYear ? currentYear - installYear : null;
             const isAged = age !== null && age >= 8; // 8년 이상 노후 또는 배터리 교체주기 초과 의심
 
-            // [전처리 3: 현재 시각 운영시간 내 개방 여부]
-            const availableNow = isCurrentlyAvailable(raw);
+            // 🌟 [5] 단일 통합 함수로 운영시간 요약, 24시간 여부, 현재 개방 여부 동시 산출 (모순 원천 제거)
+            const opInfo = calculateAedOperatingInfo(raw);
+            const availableNow = opInfo.availableNow;
+            const available24h = opInfo.available24h;
+            const operatingHours = opInfo.operatingHours;
 
             // 🌟 [4] rnum(조회 순번) 대신 공공데이터 고유 식별자(serialSeq) 사용, 부재 시 결정론적 해시 (위치 변경에도 불변 고유 ID)
             const stableSeq = raw.serialSeq && String(raw.serialSeq).trim();
@@ -560,10 +616,6 @@ app.get(['/api/facilities', '/facilities'], async (req, res) => {
 
             const distMeters = calculateDistanceMeters(lat, lon, finalLat, finalLon);
 
-            const isAed24h = (raw.sunSttTme === '0000' && raw.sunEndTme === '2400') ||
-              (raw.satSttTme === '0000' && raw.satEndTme === '2400') ||
-              (raw.monSttTme === '0000' && raw.monEndTme === '2400');
-
             return {
               id: facilityId,
               category: 'aed',
@@ -572,7 +624,7 @@ app.get(['/api/facilities', '/facilities'], async (req, res) => {
               calibrationOffsetMeters,
               rawLat: itemLat,
               rawLon: itemLon,
-              available24h: isAed24h,
+              available24h,
               name: `${raw.org || '공공시설'} AED`,
               org: raw.org || '관리기관 미상',
               buildAddress: raw.buildAddress || '주소 정보 없음',
@@ -588,7 +640,7 @@ app.get(['/api/facilities', '/facilities'], async (req, res) => {
               age: age !== null ? `${age}년` : '확인 불가',
               isAged,
               availableNow,
-              operatingHours: getOperatingHoursSummary(raw),
+              operatingHours,
               unconfirmedReportCount,
               reportsCount: reports.length,
               reports,

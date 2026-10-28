@@ -283,10 +283,10 @@ export default function App() {
     }
   }, [coords.lat, coords.lon, category, loadFacilities]);
 
-  // '지금 개방' 필터 적용된 최종 목록
+  // 🌟 [5] '지금 개방' 필터 적용된 최종 목록 (알 수 없음(null)은 개방으로 취급하지 않고 확실한 true만 필터링)
   const displayedFacilities = useMemo(() => {
     if (!openOnly) return facilities;
-    return facilities.filter((f) => f.availableNow !== false);
+    return facilities.filter((f) => f.availableNow === true);
   }, [facilities, openOnly]);
 
   // 카운트 계산
@@ -295,7 +295,7 @@ export default function App() {
     return {
       total: facilities.length,
       aed: aeds.length,
-      openAeds: aeds.filter((f) => f.availableNow !== false).length,
+      openAeds: aeds.filter((f) => f.availableNow === true).length,
       shelter: facilities.filter((f) => f.category === 'shelter').length,
     };
   }, [facilities]);
