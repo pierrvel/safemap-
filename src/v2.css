@@ -57,6 +57,11 @@ body, html {
 .v2-map-canvas {
   width: 100%;
   height: 100%;
+  touch-action: pan-x pan-y pinch-zoom;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: none;
+  transform: translateZ(0);
+  will-change: transform;
 }
 
 /* 우측 상단 플로팅 미니 FAB 버튼들 */
@@ -352,7 +357,21 @@ body, html {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
   animation: v2-card-up 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: transform;
+}
+
+.v2-bottom-card.expanded {
+  max-height: 80vh;
+  max-height: 80dvh;
+}
+
+.v2-bottom-card.expanded .v2-facility-list-scroll {
+  max-height: 46vh;
+  max-height: 46dvh;
 }
 
 .v2-bottom-card.empty-state {
@@ -369,6 +388,11 @@ body, html {
   align-items: center;
   justify-content: space-between;
   padding: 8px 14px 4px;
+  cursor: grab;
+  touch-action: none;
+}
+.v2-card-header-bar:active {
+  cursor: grabbing;
 }
 
 .v2-card-header-bar .v2-card-grip {

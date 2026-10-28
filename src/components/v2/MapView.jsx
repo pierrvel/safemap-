@@ -18,7 +18,7 @@ export default function MapView({
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
   const userMarkerRef = useRef(null);
-  const markersRef = useRef([]);
+  const markerMapRef = useRef(new Map()); // id -> { marker, fac, isSelected, isNearest }
   const routePolylineRef = useRef(null);
   const isInitialCenteringDone = useRef(false);
 
@@ -72,37 +72,59 @@ export default function MapView({
     }
   }, [userCoords]);
 
-  // 3. 시설 마커 렌더링
+  // 3. 시설 마커 렌더링 (마커 재사용 풀링: 불필요한 DOM 파괴/생성 0회로 60fps 보장)
   useEffect(() => {
     if (!mapRef.current || !window.kakao?.maps) return;
 
-    // 기존 마커 제거
-    markersRef.current.forEach((m) => m.setMap(null));
-    markersRef.current = [];
+    const currentMap = markerMapRef.current;
+    const newIds = new Set(facilities.map((f) => f.id));
 
-    const newMarkers = facilities.map((fac, idx) => {
+    // 1. 화면 범위 밖으로 사라진 마커만 지도에서 제거
+    for (const [id, entry] of currentMap.entries()) {
+      if (!newIds.has(id)) {
+        entry.marker.setMap(null);
+        currentMap.delete(id);
+      }
+    }
+
+    // 2. 기존 마커는 이미지 및 zIndex만 갱신 (DOM 재생성 X)
+    facilities.forEach((fac, idx) => {
       const pos = new window.kakao.maps.LatLng(fac.lat, fac.lon);
       const isNearest = idx === 0;
       const isSelected = selectedFacility?.id === fac.id;
 
-      const marker = new window.kakao.maps.Marker({
-        position: pos,
-        image: createCustomPinIcon(fac, isNearest, isSelected),
-        map: mapRef.current,
-        zIndex: isSelected ? 9 : (isNearest ? 8 : 4),
-      });
-
-      window.kakao.maps.event.addListener(marker, 'click', () => {
-        onSelectFacility(fac);
-        if (mapRef.current) {
-          mapRef.current.panTo(pos);
+      if (currentMap.has(fac.id)) {
+        const entry = currentMap.get(fac.id);
+        if (entry.isSelected !== isSelected || entry.isNearest !== isNearest) {
+          entry.marker.setImage(createCustomPinIcon(fac, isNearest, isSelected));
+          entry.marker.setZIndex(isSelected ? 9 : (isNearest ? 8 : 4));
+          entry.isSelected = isSelected;
+          entry.isNearest = isNearest;
         }
-      });
+      } else {
+        // 새로 발견된 시설만 마커 인스턴스 신규 생성
+        const marker = new window.kakao.maps.Marker({
+          position: pos,
+          image: createCustomPinIcon(fac, isNearest, isSelected),
+          map: mapRef.current,
+          zIndex: isSelected ? 9 : (isNearest ? 8 : 4),
+        });
 
-      return marker;
+        window.kakao.maps.event.addListener(marker, 'click', () => {
+          onSelectFacility(fac);
+          if (mapRef.current) {
+            mapRef.current.panTo(pos);
+          }
+        });
+
+        currentMap.set(fac.id, {
+          marker,
+          fac,
+          isSelected,
+          isNearest,
+        });
+      }
     });
-
-    markersRef.current = newMarkers;
   }, [facilities, selectedFacility, onSelectFacility]);
 
   // 4. 도보 내비게이션 경로선 (Polyline) 렌더링 (배열 및 객체 좌표 완벽 파싱)

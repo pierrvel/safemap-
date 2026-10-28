@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   Navigation,
   Heart,
@@ -16,10 +16,10 @@ import {
 } from 'lucide-react';
 
 /**
- * 🫀 Heartisense 감성의 가로/세로 모바일·태블릿 최적화 하단/사이드 긴급 카드
- * - 한눈에 보이는 대형 '도보 길안내 시작' 히어로 버튼
- * - 네이버지도처럼 지도를 가리지 않게 최소화(접기) 기능 지원
- * - 가로모드 시 좌측 플로팅 패널로 자동 전환
+ * 🫀 Heartisense 감성의 네이티브급 터치 스와이프 물리 엔진 하단 긴급 카드
+ * - 손가락 궤적을 1:1로 자석처럼 추종하는 제스처 (60fps/120fps 무지연)
+ * - 3단계 스냅 포인트 (collapsed: 초미니 바 / default: 긴급 카드 / expanded: 전체 목록)
+ * - 플릭(Flick) 가속도 감속 및 스프링 스냅
  */
 export default function EmergencyBottomCard({
   facility,
@@ -32,7 +32,65 @@ export default function EmergencyBottomCard({
   isExpanded,
   onToggleExpand,
 }) {
-  const [isMinimized, setIsMinimized] = useState(false);
+  // 🌟 네이티브 앱 수준의 3단계 스냅 상태 관리
+  const [sheetState, setSheetState] = useState('default'); // 'collapsed' | 'default' | 'expanded'
+  const [dragOffsetY, setDragOffsetY] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+
+  const touchStartY = useRef(0);
+  const touchStartTime = useRef(0);
+  const currentDragY = useRef(0);
+
+  // 터치 스와이프 제스처 핸들러
+  const handleTouchStart = (e) => {
+    touchStartY.current = e.touches[0].clientY;
+    touchStartTime.current = Date.now();
+    currentDragY.current = 0;
+    setIsDragging(true);
+  };
+
+  const handleTouchMove = (e) => {
+    if (!isDragging) return;
+    const deltaY = e.touches[0].clientY - touchStartY.current;
+
+    // 감쇠 저항(Rubber-band) 효과
+    let damping = 1;
+    if (sheetState === 'expanded' && deltaY < 0) damping = 0.25; // 위로 더 당길 때
+    if (sheetState === 'collapsed' && deltaY > 0) damping = 0.25; // 아래로 더 내릴 때
+
+    const finalOffset = deltaY * damping;
+    currentDragY.current = finalOffset;
+    setDragOffsetY(finalOffset);
+  };
+
+  const handleTouchEnd = () => {
+    setIsDragging(false);
+    const deltaY = currentDragY.current;
+    const timeElapsed = Math.max(1, Date.now() - touchStartTime.current);
+    const velocity = deltaY / timeElapsed; // px/ms
+
+    // 빠른 스와이프 플릭(Velocity 기반) 또는 45px 이상 드래그 시 스냅
+    if (velocity < -0.3 || deltaY < -45) {
+      // 🚀 위로 스와이프: collapsed -> default -> expanded
+      if (sheetState === 'collapsed') {
+        setSheetState('default');
+      } else if (sheetState === 'default') {
+        setSheetState('expanded');
+        onToggleExpand?.(true);
+      }
+    } else if (velocity > 0.3 || deltaY > 45) {
+      // 🚀 아래로 스와이프: expanded -> default -> collapsed
+      if (sheetState === 'expanded') {
+        setSheetState('default');
+        onToggleExpand?.(false);
+      } else if (sheetState === 'default') {
+        setSheetState('collapsed');
+      }
+    }
+
+    setDragOffsetY(0);
+    currentDragY.current = 0;
+  };
 
   // 시설 데이터가 아직 로딩 중이거나 없는 경우의 긴급 대기 바
   if (!facility) {
@@ -68,19 +126,27 @@ export default function EmergencyBottomCard({
 
   const isAvailableNow = facility.availableNow !== false;
   const isCalibrated = facility.locationConfidence === 'CALIBRATED';
+  const isExpandedFinal = sheetState === 'expanded' || isExpanded;
 
   // 카카오맵 외부 길찾기 URL
   const kakaoMapUrl = `https://map.kakao.com/link/to/${encodeURIComponent(facility.name)},${facility.lat},${facility.lon}`;
 
-  // 🌟 네이버지도처럼 완전히 접혔을 때의 초미니 바 (지도 시야 100% 확보)
-  if (isMinimized) {
+  // 🌟 [1단계 스냅: Collapsed] 네이버지도처럼 완전히 접힌 초미니 바 (스와이프로 즉시 끌어올림 가능)
+  if (sheetState === 'collapsed') {
     return (
       <section
         className="v2-bottom-card minimized"
         aria-label="안전시설 요약 바"
-        onClick={() => setIsMinimized(false)}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        style={{
+          transform: isDragging ? `translate3d(0, ${dragOffsetY}px, 0)` : undefined,
+          transition: isDragging ? 'none' : 'transform 0.28s cubic-bezier(0.16, 1, 0.3, 1)',
+          willChange: 'transform',
+        }}
       >
-        <div className="v2-card-minimized-row">
+        <div className="v2-card-minimized-row" onClick={() => setSheetState('default')}>
           <div className="v2-min-left">
             <span className={`v2-tag-cat mini ${isAed ? 'aed' : 'shelter'}`}>
               {isAed ? 'AED' : '대피소'}
@@ -113,9 +179,9 @@ export default function EmergencyBottomCard({
               className="v2-btn-min-expand"
               onClick={(e) => {
                 e.stopPropagation();
-                setIsMinimized(false);
+                setSheetState('default');
               }}
-              title="상세 정보 및 목록 펼치기"
+              title="상세 정보 펼치기"
             >
               <ChevronUp size={16} />
               <span>펼치기</span>
@@ -126,21 +192,39 @@ export default function EmergencyBottomCard({
     );
   }
 
+  // 🌟 [2단계 & 3단계 스냅: Default / Expanded]
   return (
     <section
-      className={`v2-bottom-card ${isExpanded ? 'expanded' : ''}`}
+      className={`v2-bottom-card ${isExpandedFinal ? 'expanded' : ''}`}
       aria-label="긴급 안전시설 정보 및 길안내"
+      style={{
+        transform: isDragging ? `translate3d(0, ${dragOffsetY}px, 0)` : undefined,
+        transition: isDragging ? 'none' : 'transform 0.28s cubic-bezier(0.16, 1, 0.3, 1), max-height 0.28s ease',
+        willChange: 'transform',
+      }}
     >
-      {/* 1. 상단 그립 바 및 '지도 넓게 보기(접기)' 버튼 */}
-      <div className="v2-card-header-bar">
-        <div className="v2-card-grip" onClick={onToggleExpand}>
+      {/* 1. 상단 그립 바 (터치 스와이프 메인 핸들) */}
+      <div
+        className="v2-card-header-bar"
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+      >
+        <div
+          className="v2-card-grip"
+          onClick={() => {
+            const next = sheetState === 'expanded' ? 'default' : 'expanded';
+            setSheetState(next);
+            onToggleExpand?.(next === 'expanded');
+          }}
+        >
           <div className="v2-grip-line"></div>
         </div>
 
         <button
           type="button"
           className="v2-btn-collapse-card"
-          onClick={() => setIsMinimized(true)}
+          onClick={() => setSheetState('collapsed')}
           title="네이버지도처럼 카드 접고 지도 넓게 보기"
         >
           <EyeOff size={13} />
@@ -183,7 +267,7 @@ export default function EmergencyBottomCard({
           </div>
         </div>
 
-        {/* 3. 시설명 & 상세 설치위치 (가장 크고 또렷하게) */}
+        {/* 3. 시설명 & 상세 설치위치 & 운영시간 */}
         <div className="v2-card-title-zone">
           <h2 className="v2-facility-name" title={facility.name}>
             {facility.name}
@@ -196,7 +280,7 @@ export default function EmergencyBottomCard({
             </span>
           </div>
 
-          {/* 운영시간 1줄 요약 */}
+          {/* AED별 간결한 1줄 운영시간 표기 */}
           {facility.operatingHours && (
             <div className={`v2-facility-hours ${isAvailableNow ? 'open' : 'closed'}`}>
               <Clock size={12} className="v2-hours-icon" />
@@ -285,20 +369,26 @@ export default function EmergencyBottomCard({
             <button
               type="button"
               className="v2-btn-toggle-list"
-              onClick={onToggleExpand}
+              onClick={() => {
+                const next = sheetState === 'expanded' ? 'default' : 'expanded';
+                setSheetState(next);
+                onToggleExpand?.(next === 'expanded');
+              }}
             >
               <div className="v2-toggle-left">
                 <List size={15} />
                 <span>주변 시설 전체 목록 ({facilities.length}개)</span>
               </div>
               <div className="v2-toggle-right">
-                <span className="v2-toggle-hint">{isExpanded ? '접기' : '목록 보기'}</span>
-                {isExpanded ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
+                <span className="v2-toggle-hint">
+                  {isExpandedFinal ? '접기' : '목록 보기'}
+                </span>
+                {isExpandedFinal ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
               </div>
             </button>
 
             {/* 펼쳐졌을 때 나타나는 주변 시설 스크롤 리스트 */}
-            {isExpanded && (
+            {isExpandedFinal && (
               <div className="v2-facility-list-scroll">
                 {facilities.map((fac, idx) => {
                   const isSelected = fac.id === facility.id;
