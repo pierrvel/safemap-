@@ -2,8 +2,36 @@ import React, { useEffect, useRef, useCallback } from 'react';
 import { Crosshair } from 'lucide-react';
 import {
   createCustomPinIcon,
+  createClusterPinIcon,
   createUserLocationIcon,
+  calculateSpiderPositions,
+  calculateDistanceMeters,
 } from '../../utils/mapIcons';
+
+// 🌟 [3] 15m 이내 동일 건물/초근접 겹침 시설 그룹화 함수
+function groupOverlappingFacilities(list) {
+  const clusters = [];
+  const visited = new Set();
+
+  list.forEach((item) => {
+    if (visited.has(item.id)) return;
+    const group = [item];
+    visited.add(item.id);
+
+    list.forEach((other) => {
+      if (visited.has(other.id)) return;
+      const d = calculateDistanceMeters(item.lat, item.lon, other.lat, other.lon);
+      if (d <= 15) {
+        group.push(other);
+        visited.add(other.id);
+      }
+    });
+
+    clusters.push(group);
+  });
+
+  return clusters;
+}
 
 export default function MapView({
   isLoaded,
@@ -18,9 +46,21 @@ export default function MapView({
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
   const userMarkerRef = useRef(null);
-  const markerMapRef = useRef(new Map()); // id -> { marker, fac, isSelected, isNearest }
+  const markerMapRef = useRef(new Map()); // id -> { marker, entry, isSelected, isNearest }
+  const spiderMarkersRef = useRef([]);
+  const spiderLinesRef = useRef([]);
+  const activeClusterIdRef = useRef(null);
   const routePolylineRef = useRef(null);
   const isInitialCenteringDone = useRef(false);
+
+  // 🌟 [3] 펼쳐진 스파이더파이 핀 및 점선 정리
+  const collapseSpider = useCallback(() => {
+    spiderMarkersRef.current.forEach((m) => m.setMap(null));
+    spiderMarkersRef.current = [];
+    spiderLinesRef.current.forEach((l) => l.setMap(null));
+    spiderLinesRef.current = [];
+    activeClusterIdRef.current = null;
+  }, []);
 
   // 1. 지도 초기화 (최초 1회만 내 GPS 위치로 중심 설정)
   useEffect(() => {
@@ -45,6 +85,11 @@ export default function MapView({
     map.setZoomable(true);
     isInitialCenteringDone.current = hasUserCoords;
 
+    // 빈 지도 영역 클릭 시 펼쳐진 스파이더 핀 접기
+    window.kakao.maps.event.addListener(map, 'click', () => {
+      collapseSpider();
+    });
+
     // 🌟 핵심 수정: 지도 드래그 시 내 위치를 옮기지 않고, 카메라 중심 이동만 부모에 알림
     window.kakao.maps.event.addListener(map, 'dragend', () => {
       const center = map.getCenter();
@@ -55,7 +100,7 @@ export default function MapView({
         });
       }
     });
-  }, [isLoaded, onCameraMove]);
+  }, [isLoaded, onCameraMove, collapseSpider]);
 
   // 2. 🌟 사용자 위치 마커 갱신 (지도를 아무리 움직여도 내 위치는 실제 GPS 좌표에 고정!)
   useEffect(() => {
@@ -91,60 +136,148 @@ export default function MapView({
     }
   }, [userCoords]);
 
-  // 3. 시설 마커 렌더링 (마커 재사용 풀링: 불필요한 DOM 파괴/생성 0회로 60fps 보장)
+  // 🌟 [3] 밀집/겹침 시설 스파이더파이 펼치기
+  const expandSpider = useCallback((cluster, centerPos, clusterId) => {
+    if (activeClusterIdRef.current === clusterId) {
+      collapseSpider();
+      return;
+    }
+    collapseSpider();
+    activeClusterIdRef.current = clusterId;
+
+    const spiders = calculateSpiderPositions(cluster, centerPos);
+    spiders.forEach(({ item, spiderPos }) => {
+      const spLatLng = new window.kakao.maps.LatLng(spiderPos.lat, spiderPos.lng);
+      const centerLatLng = new window.kakao.maps.LatLng(centerPos.lat, centerPos.lng);
+
+      // 1. 방사 점선 다리
+      const legLine = new window.kakao.maps.Polyline({
+        map: mapRef.current,
+        path: [centerLatLng, spLatLng],
+        strokeWeight: 2,
+        strokeColor: '#2563eb',
+        strokeOpacity: 0.75,
+        strokeStyle: 'dashed',
+        zIndex: 5,
+      });
+      spiderLinesRef.current.push(legLine);
+
+      // 2. 방사 개별 마커
+      const isNearest = item.id === facilities[0]?.id;
+      const isSelected = selectedFacility?.id === item.id;
+      const spMarker = new window.kakao.maps.Marker({
+        map: mapRef.current,
+        position: spLatLng,
+        image: createCustomPinIcon(item, isNearest, isSelected),
+        zIndex: 30,
+      });
+
+      window.kakao.maps.event.addListener(spMarker, 'click', () => {
+        onSelectFacility(item);
+      });
+
+      spiderMarkersRef.current.push(spMarker);
+    });
+  }, [collapseSpider, facilities, selectedFacility, onSelectFacility]);
+
+  // 3. 시설 마커 렌더링 (마커 재사용 풀링 & 겹침 마커 스파이더파이어)
   useEffect(() => {
     if (!mapRef.current || !window.kakao?.maps) return;
 
     const currentMap = markerMapRef.current;
-    const newIds = new Set(facilities.map((f) => f.id));
+    const clusters = groupOverlappingFacilities(facilities);
+    const newClusterKeys = new Set();
 
-    // 1. 화면 범위 밖으로 사라진 마커만 지도에서 제거
-    for (const [id, entry] of currentMap.entries()) {
-      if (!newIds.has(id)) {
-        entry.marker.setMap(null);
-        currentMap.delete(id);
-      }
-    }
+    clusters.forEach((group) => {
+      if (group.length === 1) {
+        const fac = group[0];
+        const key = fac.id;
+        newClusterKeys.add(key);
 
-    // 2. 기존 마커는 이미지 및 zIndex만 갱신 (DOM 재생성 X)
-    facilities.forEach((fac, idx) => {
-      const pos = new window.kakao.maps.LatLng(fac.lat, fac.lon);
-      const isNearest = idx === 0;
-      const isSelected = selectedFacility?.id === fac.id;
+        const pos = new window.kakao.maps.LatLng(fac.lat, fac.lon);
+        const isNearest = fac.id === facilities[0]?.id;
+        const isSelected = selectedFacility?.id === fac.id;
 
-      if (currentMap.has(fac.id)) {
-        const entry = currentMap.get(fac.id);
-        if (entry.isSelected !== isSelected || entry.isNearest !== isNearest) {
-          entry.marker.setImage(createCustomPinIcon(fac, isNearest, isSelected));
-          entry.marker.setZIndex(isSelected ? 9 : (isNearest ? 8 : 4));
-          entry.isSelected = isSelected;
-          entry.isNearest = isNearest;
+        if (currentMap.has(key)) {
+          const entry = currentMap.get(key);
+          if (entry.isSelected !== isSelected || entry.isNearest !== isNearest) {
+            entry.marker.setImage(createCustomPinIcon(fac, isNearest, isSelected));
+            entry.marker.setZIndex(isSelected ? 9 : (isNearest ? 8 : 4));
+            entry.isSelected = isSelected;
+            entry.isNearest = isNearest;
+          }
+        } else {
+          const marker = new window.kakao.maps.Marker({
+            position: pos,
+            image: createCustomPinIcon(fac, isNearest, isSelected),
+            map: mapRef.current,
+            zIndex: isSelected ? 9 : (isNearest ? 8 : 4),
+          });
+
+          window.kakao.maps.event.addListener(marker, 'click', () => {
+            collapseSpider();
+            onSelectFacility(fac);
+            if (mapRef.current) {
+              mapRef.current.panTo(pos);
+            }
+          });
+
+          currentMap.set(key, { marker, isCluster: false, fac, isSelected, isNearest });
         }
       } else {
-        // 새로 발견된 시설만 마커 인스턴스 신규 생성
-        const marker = new window.kakao.maps.Marker({
-          position: pos,
-          image: createCustomPinIcon(fac, isNearest, isSelected),
-          map: mapRef.current,
-          zIndex: isSelected ? 9 : (isNearest ? 8 : 4),
-        });
+        // 🌟 복수 시설 겹침 클러스터 마커 (터치 시 부채꼴 방사 펼침)
+        const clusterKey = `cluster-${group.map((f) => f.id).sort().join('-')}`;
+        newClusterKeys.add(clusterKey);
 
-        window.kakao.maps.event.addListener(marker, 'click', () => {
-          onSelectFacility(fac);
-          if (mapRef.current) {
-            mapRef.current.panTo(pos);
+        const avgLat = group.reduce((sum, f) => sum + f.lat, 0) / group.length;
+        const avgLon = group.reduce((sum, f) => sum + f.lon, 0) / group.length;
+        const centerPos = { lat: avgLat, lng: avgLon };
+        const centerLatLng = new window.kakao.maps.LatLng(avgLat, avgLon);
+
+        const isNearest = group.some((f) => f.id === facilities[0]?.id);
+        const isSelected = group.some((f) => f.id === selectedFacility?.id);
+
+        if (currentMap.has(clusterKey)) {
+          const entry = currentMap.get(clusterKey);
+          if (entry.isSelected !== isSelected || entry.isNearest !== isNearest) {
+            entry.marker.setImage(createClusterPinIcon(group, isNearest));
+            entry.marker.setZIndex(isSelected ? 10 : (isNearest ? 8 : 5));
+            entry.isSelected = isSelected;
+            entry.isNearest = isNearest;
           }
-        });
+        } else {
+          const marker = new window.kakao.maps.Marker({
+            position: centerLatLng,
+            image: createClusterPinIcon(group, isNearest),
+            map: mapRef.current,
+            zIndex: isSelected ? 10 : (isNearest ? 8 : 5),
+            title: `${group.length}개 시설 겹침 (터치하여 펼치기)`,
+          });
 
-        currentMap.set(fac.id, {
-          marker,
-          fac,
-          isSelected,
-          isNearest,
-        });
+          window.kakao.maps.event.addListener(marker, 'click', () => {
+            expandSpider(group, centerPos, clusterKey);
+          });
+
+          currentMap.set(clusterKey, {
+            marker,
+            isCluster: true,
+            group,
+            centerPos,
+            isSelected,
+            isNearest,
+          });
+        }
       }
     });
-  }, [facilities, selectedFacility, onSelectFacility]);
+
+    // 화면 밖으로 사라진 마커 정리
+    for (const [key, entry] of currentMap.entries()) {
+      if (!newClusterKeys.has(key)) {
+        entry.marker.setMap(null);
+        currentMap.delete(key);
+      }
+    }
+  }, [facilities, selectedFacility, onSelectFacility, collapseSpider, expandSpider]);
 
   // 4. 도보 내비게이션 경로선 (Polyline) 렌더링 (배열 및 객체 좌표 완벽 파싱)
   useEffect(() => {

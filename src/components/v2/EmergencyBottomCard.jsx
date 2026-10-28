@@ -277,6 +277,16 @@ export default function EmergencyBottomCard({
               </span>
             )}
 
+            {facility.locationConfidence === 'CHECK_NEEDED' && (
+              <span
+                className="v2-tag-status"
+                style={{ background: '#fef3c7', color: '#b45309', border: '1px solid #fde68a' }}
+                title="공공데이터 등록 주소와 지도 좌표 간 차이가 있어 현장 위치 확인이 필요합니다"
+              >
+                위치 확인 필요
+              </span>
+            )}
+
             {/* 🌟 자체 위치 자동 보정 배지 */}
             {isCalibrated && (
               <span

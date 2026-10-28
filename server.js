@@ -79,6 +79,7 @@ app.use(express.static(staticDir));
 
 // 환경변수 기반 API 키 및 설정
 const getKakaoMapApiKey = () => process.env.KAKAO_MAP_API_KEY || '';
+const getKakaoRestApiKey = () => process.env.KAKAO_REST_API_KEY || process.env.KAKAO_MAP_API_KEY || '';
 const getGoogleMapsApiKey = () => process.env.GOOGLE_MAPS_API_KEY || '';
 const getDataGoKrKey = () => process.env.DATA_GO_KR_KEY || '';
 
@@ -274,43 +275,53 @@ function isCurrentlyAvailable(item) {
 const aedGeocodeCache = new Map();
 
 // 공공데이터포털 등록 좌표의 지번/필지 오차 교차 검증 및 지오코딩 보정 함수
-async function geocodeAddress(address, orgName = '') {
-  const cacheKey = `${address || ''}|${orgName || ''}`;
+async function geocodeAddress(address, orgName = '', centerLat = null, centerLon = null) {
+  const cacheKey = `${address || ''}|${orgName || ''}|${centerLat || ''}|${centerLon || ''}`;
   if (aedGeocodeCache.has(cacheKey)) {
     return aedGeocodeCache.get(cacheKey);
   }
 
-  const kakaoKey = getKakaoMapApiKey();
+  const kakaoKey = getKakaoRestApiKey();
   if (!kakaoKey) {
     return null;
   }
 
+  // 🌟 [3] 임의의 KA, Origin 로컬호스트 우회 헤더 제거 및 공식 REST 규격 적용
   const headers = {
     Authorization: `KakaoAK ${kakaoKey}`,
-    KA: 'sdk/1.0.0 os/javascript lang/ko-KR res/1920x1080 device/pc origin/http://localhost:3000',
-    Origin: 'http://localhost:3000',
   };
 
   const cleanAddr = (address || '').split(',')[0].replace(/\([^\)]*\)/g, '').trim();
 
   try {
-    // 1. 주요 랜드마크/기관명(학교, 병원, 센터, 역, 아파트, 청사 등) 키워드 검색 우선 시도
-    if (orgName && (orgName.includes('학교') || orgName.includes('병원') || orgName.includes('센터') || orgName.includes('역') || orgName.includes('아파트') || orgName.includes('청사') || orgName.includes('도서관'))) {
-      const kwUrl = `https://dapi.kakao.com/v2/local/search/keyword.json?query=${encodeURIComponent(orgName)}`;
+    // 1. 주요 랜드마크/기관명 키워드 검색 (위치 반경 제한 및 정확한 단어 경계 검사)
+    const isSignificantPlace = /(?:초등학교|중학교|고등학교|대학교|병원|보건소|도서관|주민센터|구청|시청|경찰서|소방서|[가-힣0-9]+역\b)/.test(orgName);
+    if (orgName && isSignificantPlace) {
+      let kwUrl = `https://dapi.kakao.com/v2/local/search/keyword.json?query=${encodeURIComponent(orgName)}`;
+      if (centerLat && centerLon) {
+        kwUrl += `&y=${centerLat}&x=${centerLon}&radius=3000`; // 3km 반경 내로 검색 범위 엄격 제한 (타도시 동명 시설 오매칭 방지)
+      }
       const kwRes = await fetch(kwUrl, { headers });
       if (kwRes.ok) {
         const kwData = await kwRes.json();
         if (kwData.documents && kwData.documents.length > 0) {
-          const matched = kwData.documents.find(d => cleanAddr && d.road_address_name && cleanAddr.includes(d.road_address_name.split(' ')[2] || '')) || kwData.documents[0];
-          const res = {
-            lat: parseFloat(matched.y),
-            lon: parseFloat(matched.x),
-            source: 'KAKAO_KEYWORD',
-            matchedName: matched.place_name,
-            matchedAddr: matched.road_address_name || matched.address_name,
-          };
-          aedGeocodeCache.set(cacheKey, res);
-          return res;
+          const matched = kwData.documents.find(d => {
+            const addr = d.road_address_name || d.address_name || '';
+            const tokens = addr.split(' ').filter(t => t.length >= 2);
+            return tokens.length > 0 && tokens.some(t => cleanAddr.includes(t));
+          }) || (centerLat && centerLon ? kwData.documents[0] : null);
+
+          if (matched) {
+            const res = {
+              lat: parseFloat(matched.y),
+              lon: parseFloat(matched.x),
+              source: 'KAKAO_KEYWORD',
+              matchedName: matched.place_name,
+              matchedAddr: matched.road_address_name || matched.address_name,
+            };
+            aedGeocodeCache.set(cacheKey, res);
+            return res;
+          }
         }
       }
     }
@@ -526,22 +537,20 @@ app.get(['/api/facilities', '/facilities'], async (req, res) => {
               }
             }
 
-            // [좌표 정밀도 교차 검증 및 지오코딩 자동 보정]
+            // 🌟 [3] 공공데이터포털 원본 좌표 신뢰 및 보존 (동별 개별 위치 보존, 단지 대표 좌표로 임의 뭉개기 금지)
             let finalLat = itemLat;
             let finalLon = itemLon;
             let locationConfidence = 'NORMAL';
             let calibrationOffsetMeters = 0;
 
             if (raw.buildAddress || raw.org) {
-              const geocoded = await geocodeAddress(raw.buildAddress, raw.org);
+              const geocoded = await geocodeAddress(raw.buildAddress, raw.org, itemLat, itemLon);
               if (geocoded && !isNaN(geocoded.lat) && !isNaN(geocoded.lon)) {
                 const diffMeters = calculateDistanceMeters(itemLat, itemLon, geocoded.lat, geocoded.lon);
-                // 70m 이상 편차 발생 시 공공데이터의 필지/아파트 인접동 오차로 판별하여 도로명/건물 정밀좌표로 보정
-                if (diffMeters >= 70) {
-                  finalLat = geocoded.lat;
-                  finalLon = geocoded.lon;
-                  locationConfidence = 'CALIBRATED';
-                  calibrationOffsetMeters = diffMeters;
+                calibrationOffsetMeters = diffMeters;
+                // 원본 좌표와 주소 간 500m 이상 심한 괴리가 있을 때만 확인 필요 플래그 부여 (좌표는 원본 유지)
+                if (diffMeters >= 500) {
+                  locationConfidence = 'CHECK_NEEDED';
                 }
               }
             }
