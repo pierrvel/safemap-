@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useCallback } from 'react';
+import { Crosshair } from 'lucide-react';
 import {
   createCustomPinIcon,
   createUserLocationIcon,
@@ -193,7 +194,7 @@ export default function MapView({
           onClick={handleSnapGps}
           title="내 실제 위치로 지도 이동"
         >
-          📍
+          <Crosshair size={18} />
         </button>
         <button
           type="button"
