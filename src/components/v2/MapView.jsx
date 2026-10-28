@@ -21,7 +21,7 @@ function groupOverlappingFacilities(list) {
     list.forEach((other) => {
       if (visited.has(other.id)) return;
       const d = calculateDistanceMeters(item.lat, item.lon, other.lat, other.lon);
-      if (d <= 15) {
+      if (d <= 20) {
         group.push(other);
         visited.add(other.id);
       }
@@ -169,11 +169,21 @@ export default function MapView({
         map: mapRef.current,
         position: spLatLng,
         image: createCustomPinIcon(item, isNearest, isSelected),
-        zIndex: 30,
+        zIndex: isSelected ? 35 : 30,
       });
+
+      spMarker.item = item;
 
       window.kakao.maps.event.addListener(spMarker, 'click', () => {
         onSelectFacility(item);
+        // 펼쳐진 모든 자식 마커의 선택 상태 즉각 갱신
+        spiderMarkersRef.current.forEach((m) => {
+          if (!m || !m.item) return;
+          const isThisSelected = m.item.id === item.id;
+          const isThisNearest = m.item.id === facilities[0]?.id;
+          m.setImage(createCustomPinIcon(m.item, isThisNearest, isThisSelected));
+          m.setZIndex(isThisSelected ? 35 : 30);
+        });
       });
 
       spiderMarkersRef.current.push(spMarker);

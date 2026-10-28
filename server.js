@@ -382,16 +382,18 @@ async function geocodeAddress(address, orgName = '', centerLat = null, centerLon
     return null;
   }
 
-  // 🌟 [3] 임의의 KA, Origin 로컬호스트 우회 헤더 제거 및 공식 REST 규격 적용
+  // 카카오 지도 JavaScript API Key를 서버에서 호출하기 위한 필수 헤더
   const headers = {
     Authorization: `KakaoAK ${kakaoKey}`,
+    KA: 'sdk/1.0.0 os/javascript lang/ko-KR res/1920x1080 device/pc origin/https://prompt-bismuth-avyohx5.vercel.app',
+    Origin: 'https://prompt-bismuth-avyohx5.vercel.app',
   };
 
   const cleanAddr = (address || '').split(',')[0].replace(/\([^\)]*\)/g, '').trim();
 
   try {
     // 1. 주요 랜드마크/기관명 키워드 검색 (위치 반경 제한 및 정확한 단어 경계 검사)
-    const isSignificantPlace = /(?:초등학교|중학교|고등학교|대학교|병원|보건소|도서관|주민센터|구청|시청|경찰서|소방서|[가-힣0-9]+역\b)/.test(orgName);
+    const isSignificantPlace = /(?:초등학교|중학교|고등학교|대학교|병원|보건소|도서관|주민센터|구청|시청|경찰서|소방서|복지관|수련관|체육센터|문화센터|아파트|타워|[가-힣0-9]+역\b)/.test(orgName);
     if (orgName && isSignificantPlace) {
       let kwUrl = `https://dapi.kakao.com/v2/local/search/keyword.json?query=${encodeURIComponent(orgName)}`;
       if (centerLat && centerLon) {
@@ -667,7 +669,7 @@ app.get(['/api/facilities', '/facilities'], async (req, res) => {
               }
             }
 
-            // 🌟 [3] 공공데이터포털 원본 좌표 신뢰 및 보존 (동별 개별 위치 보존, 단지 대표 좌표로 임의 뭉개기 금지)
+            // 🌟 [위치 보정 복구] 도로명/건물 지오코딩 교차 검증 및 정밀 위치 보정 적용
             let finalLat = itemLat;
             let finalLon = itemLon;
             let locationConfidence = 'NORMAL';
@@ -678,8 +680,14 @@ app.get(['/api/facilities', '/facilities'], async (req, res) => {
               if (geocoded && !isNaN(geocoded.lat) && !isNaN(geocoded.lon)) {
                 const diffMeters = calculateDistanceMeters(itemLat, itemLon, geocoded.lat, geocoded.lon);
                 calibrationOffsetMeters = diffMeters;
-                // 원본 좌표와 주소 간 500m 이상 심한 괴리가 있을 때만 확인 필요 플래그 부여 (좌표는 원본 유지)
-                if (diffMeters >= 500) {
+
+                // 70m 이상 편차 발생 시 공공데이터의 지번/필지 오차로 판별하여 도로명/건물 정밀좌표로 보정
+                // 단, 5km 이상 심한 괴리는 타지역 동명 시설 오매칭 방지를 위해 원본 유지 및 확인 필요 상태 부여
+                if (diffMeters >= 70 && diffMeters < 5000) {
+                  finalLat = geocoded.lat;
+                  finalLon = geocoded.lon;
+                  locationConfidence = 'CALIBRATED';
+                } else if (diffMeters >= 5000) {
                   locationConfidence = 'CHECK_NEEDED';
                 }
               }
