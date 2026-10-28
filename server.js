@@ -7,23 +7,26 @@ const fs = require('fs');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// CORS 허용 도메인 엄격 제한 (Vercel 배포 및 로컬 개발 환경 허용)
-const allowedOrigins = [
-  'https://prompt-bismuth-avyohx5.vercel.app',
-  'http://localhost:5173',
-  'http://localhost:3000',
-  'http://127.0.0.1:5173',
-  'http://127.0.0.1:3000',
-];
+// CORS 허용 도메인 설정 (Vercel 배포 도메인 및 로컬 개발 환경 포트 허용)
+const isAllowedOrigin = (origin) => {
+  if (!origin) return true;
+  if (
+    origin === 'https://prompt-bismuth-avyohx5.vercel.app' ||
+    origin.endsWith('.vercel.app') ||
+    /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)
+  ) {
+    return true;
+  }
+  return false;
+};
 
 app.use(
   cors({
     origin: (origin, callback) => {
-      if (!origin) return callback(null, true);
-      if (allowedOrigins.includes(origin) || origin.endsWith('.vercel.app')) {
+      if (isAllowedOrigin(origin)) {
         return callback(null, true);
       }
-      return callback(new Error('Not allowed by CORS'));
+      return callback(null, false);
     },
     credentials: true,
   })
