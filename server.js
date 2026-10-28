@@ -468,6 +468,20 @@ function extractSubKeyword(buildPlace) {
 const REGION_WORDS = new Set(['서울', '경기', '성남', '분당', '수지', '기흥', '일산', '인천', '수원', '용인', '서현', '이매', '수내', '판교', '야탑', '정자']);
 const GENERIC_BUILDING_WORDS = new Set(['아파트', '아파', '파트', '단지', '병원', '학교', '초등', '중학', '고등', '대학', '센터', '공원', '빌딩', '타워']);
 
+const PREFIX_REGEX = /^(?:효자촌|시범단지|시범|이매촌|아름마을|샛별마을|탑마을|푸른마을|상록마을|양지마을|파크타운|백현마을|판교|분당|성남)/;
+
+function verifyStrictBrandMatch(docName, orgName) {
+  let clean = orgName.replace(/\(주\)|주식회사/g, '').trim();
+  clean = clean.replace(PREFIX_REGEX, '').trim();
+  clean = clean.replace(/아파트|빌딩|타워|오피스텔/g, '').trim();
+  if (clean && clean.length >= 2) {
+    if (!docName.includes(clean)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function hasStrictCommonKeyword(docName, orgName) {
   const clean = orgName.replace(/\(주\)|주식회사/g, '').trim();
   const publicOffices = ['구청', '시청', '보건소', '소방서', '경찰서', '주민센터', '행정복지센터'];
@@ -519,13 +533,14 @@ async function geocodeSubLocation(orgName, buildPlace, baseLat, baseLon) {
       const data = await res.json();
       const docs = data.documents || [];
 
-      // 안전 검증: 기준 좌표 300m 이내, 세부 키워드 포함, 기관명 고유단어 일치
+      // 안전 검증: 기준 좌표 300m 이내, 세부 키워드 포함, 기관명 고유단어 및 브랜드 일치
       const matched = docs.find((d) => {
         const dLat = parseFloat(d.y);
         const dLon = parseFloat(d.x);
         if (calculateDistanceMeters(baseLat, baseLon, dLat, dLon) > 300) return false;
         if (!d.place_name.includes(subKeyword)) return false;
         if (!hasStrictCommonKeyword(d.place_name, cleanOrg)) return false;
+        if (!verifyStrictBrandMatch(d.place_name, cleanOrg)) return false;
         return true;
       });
 
