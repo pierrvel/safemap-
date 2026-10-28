@@ -514,21 +514,24 @@ app.get(['/api/facilities', '/facilities'], async (req, res) => {
             // [전처리 3: 현재 시각 운영시간 내 개방 여부]
             const availableNow = isCurrentlyAvailable(raw);
 
-            // [전처리 4: 사용자 제보 접수 여부 확인]
-            const facilityId = `AED-${raw.rnum || raw.serialSeq}`;
+            // 🌟 [4] rnum(조회 순번) 대신 공공데이터 고유 식별자(serialSeq) 사용, 부재 시 결정론적 해시 (위치 변경에도 불변 고유 ID)
+            const stableSeq = raw.serialSeq && String(raw.serialSeq).trim();
+            const fallbackHash = !stableSeq
+              ? require('crypto')
+                  .createHash('md5')
+                  .update(`${raw.org || ''}|${raw.buildAddress || ''}|${raw.buildPlace || ''}|${itemLat}|${itemLon}`)
+                  .digest('hex')
+                  .slice(0, 10)
+              : null;
+            const facilityId = stableSeq ? `AED-${stableSeq}` : `AED-H${fallbackHash}`;
             const reports = userReports.filter(r => r.facilityId === facilityId);
-            const hasIssueReport = reports.length > 0;
+            const unconfirmedReportCount = reports.length;
 
             // 즉시 가용 필터(verifiedOnly) 적용 시:
-            // 노후 장비 및 고장 제보 장비는 제외하되,
-            // 야간/휴일이라도 시설 위치 및 정보 파악이 가능하도록 무조건 배제하지 않고 가용성 플래그로 전달
+            // 🌟 [4] 악용 방지: 단 1건의 익명 제보로 멀쩡한 시설을 즉시 삭제/숨기지 않고 플래그만 관리
             if (verifiedOnly) {
               if (isAged) {
                 stats.agedEquipmentFiltered++;
-                return null;
-              }
-              if (hasIssueReport) {
-                stats.userReportedExcluded++;
                 return null;
               }
               if (!availableNow) {
@@ -586,10 +589,11 @@ app.get(['/api/facilities', '/facilities'], async (req, res) => {
               isAged,
               availableNow,
               operatingHours: getOperatingHoursSummary(raw),
+              unconfirmedReportCount,
               reportsCount: reports.length,
               reports,
               checkin: facilityCheckins[facilityId] || null,
-              verified: !isAged && availableNow && !hasIssueReport,
+              verified: !isAged && availableNow,
             };
           })
         );
@@ -647,7 +651,7 @@ app.get(['/api/facilities', '/facilities'], async (req, res) => {
   }
 });
 
-// 원터치 시설 상태 확인 (Micro Check-in) API
+// 원터치 시설 상태 확인 (Micro Check-in) API (공식 서비스 준비 중)
 app.post(['/api/checkin', '/checkin'], (req, res) => {
   const { facilityId, status, note } = req.body;
   if (!facilityId || !status) {
@@ -655,13 +659,14 @@ app.post(['/api/checkin', '/checkin'], (req, res) => {
   }
 
   const prev = facilityCheckins[facilityId] || { normalCount: 0, issueCount: 0 };
+  const cleanNote = String(note || '').slice(0, 300); // 300자 입력 제한
   if (status === 'NORMAL') {
     prev.normalCount = (prev.normalCount || 0) + 1;
     prev.lastNormalAt = new Date().toISOString();
   } else {
     prev.issueCount = (prev.issueCount || 0) + 1;
     prev.lastIssueAt = new Date().toISOString();
-    prev.lastIssueNote = note || '잠김 또는 고장 신고';
+    prev.lastIssueNote = cleanNote || '잠김 또는 고장 신고';
   }
   prev.lastStatus = status;
   prev.lastUpdated = new Date().toISOString();
@@ -671,7 +676,7 @@ app.post(['/api/checkin', '/checkin'], (req, res) => {
 
   res.json({
     success: true,
-    message: status === 'NORMAL' ? '정상 비치 확인이 접수되었습니다.' : '잠김/고장 신고가 접수되었습니다.',
+    message: '현장 실사 점검 기록이 접수되었습니다. (공식 서비스 준비 중)',
     checkin: prev,
   });
 });
@@ -683,11 +688,11 @@ app.get(['/api/checkins', '/checkins'], (req, res) => {
   });
 });
 
-// 사용자 제보 등록 API (연구계획서: 실제로 없는 경우가 있을 수 있으므로 제보 시스템 구축)
+// 사용자 제보 등록 API (공식 서비스 준비 중)
 app.post(['/api/reports', '/api/report', '/reports', '/report'], (req, res) => {
-  const { facilityId, facilityName, reporterName } = req.body;
+  const { facilityId, facilityName } = req.body;
   const reportType = req.body.reportType || req.body.issueType || 'ISSUE';
-  const details = req.body.details || req.body.description || '';
+  const details = String(req.body.details || req.body.description || '').slice(0, 300); // 300자 입력 제한
 
   if (!facilityId) {
     return res.status(400).json({ success: false, message: '필수 입력 항목(facilityId)이 누락되었습니다.' });
@@ -699,7 +704,6 @@ app.post(['/api/reports', '/api/report', '/reports', '/report'], (req, res) => {
     facilityName: facilityName || '안전시설',
     reportType, // 'MISSING' (장비 없음), 'DAMAGED' (고장/파손), 'LOCATION_DIFF' (위치 불일치), 'EXPIRED' (노후 경과)
     details: details || '',
-    reporterName: reporterName || '익명 제보자',
     createdAt: new Date().toISOString(),
   };
 
@@ -708,17 +712,26 @@ app.post(['/api/reports', '/api/report', '/reports', '/report'], (req, res) => {
 
   res.json({
     success: true,
-    message: '제보가 성공적으로 접수되었습니다.',
+    message: '제보가 성공적으로 접수되었습니다. (공식 서비스 준비 중)',
     report: newReport,
   });
 });
 
-// 제보 목록 조회 API
+// 🌟 [4] 제보 목록 조회 API (제보자 이름 등 개인정보 완전 제외하여 PII 보호)
 app.get(['/api/reports', '/reports'], (req, res) => {
+  const sanitizedReports = userReports.map(r => ({
+    reportId: r.reportId,
+    facilityId: r.facilityId,
+    facilityName: r.facilityName,
+    reportType: r.reportType,
+    details: r.details,
+    createdAt: r.createdAt,
+  }));
+
   res.json({
     success: true,
-    total: userReports.length,
-    reports: userReports,
+    total: sanitizedReports.length,
+    reports: sanitizedReports,
   });
 });
 

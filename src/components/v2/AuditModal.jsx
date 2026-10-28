@@ -38,7 +38,7 @@ export default function AuditModal({ facility, isOpen, onClose, onSuccess }) {
         });
       }
       setSubmitting(false);
-      onSuccess?.('✅ AED 현장 점검 기록이 저장되었습니다.');
+      onSuccess?.('ℹ️ 점검 기록이 시범 접수되었습니다. (공식 서비스 준비 중)');
       onClose();
     } catch (err) {
       setSubmitting(false);
@@ -64,6 +64,21 @@ export default function AuditModal({ facility, isOpen, onClose, onSuccess }) {
         </div>
 
         <form onSubmit={handleSubmit} className="v2-audit-form">
+          {/* 공식 서비스 준비 중 안내 배너 */}
+          <div style={{
+            padding: '10px 14px',
+            background: '#eff6ff',
+            border: '1px solid #bfdbfe',
+            borderRadius: '12px',
+            fontSize: '0.76rem',
+            color: '#1e40af',
+            lineHeight: '1.45',
+            marginBottom: '10px'
+          }}>
+            ℹ️ <strong>공식 서비스 준비 중</strong><br />
+            시민 참여 실사 점검 기능은 관할 기관 자문 수렴 후 정식 연동될 예정입니다.
+          </div>
+
           {/* 위치 정보 확인 */}
           <div className="v2-audit-facility-box">
             <span className="v2-audit-place-tag">등록 위치</span>
