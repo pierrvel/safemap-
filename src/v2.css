@@ -363,6 +363,119 @@ body, html {
   to { transform: translateY(0); opacity: 1; }
 }
 
+.v2-card-header-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px 4px;
+}
+
+.v2-card-header-bar .v2-card-grip {
+  flex: 1;
+  padding: 0;
+  display: flex;
+  justify-content: center;
+}
+
+.v2-btn-collapse-card {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  color: #64748b;
+  border-radius: 9999px;
+  padding: 3px 8px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.v2-btn-collapse-card:active {
+  background: #e2e8f0;
+  transform: scale(0.95);
+}
+
+.v2-bottom-card.minimized {
+  padding: 0;
+  border-radius: 16px;
+  box-shadow: 0 10px 25px -4px rgba(15, 23, 42, 0.18);
+  cursor: pointer;
+  animation: v2-card-up 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.v2-card-minimized-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px;
+  gap: 10px;
+}
+
+.v2-min-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.v2-min-name {
+  font-size: 0.85rem;
+  font-weight: 800;
+  color: #0f172a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.v2-min-dist {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #2563eb;
+  white-space: nowrap;
+}
+
+.v2-min-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.v2-btn-min-nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  background: #2563eb;
+  color: #ffffff;
+  border: none;
+  border-radius: 10px;
+  font-size: 0.74rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+.v2-btn-min-nav:active {
+  transform: scale(0.95);
+}
+
+.v2-btn-min-expand {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 8px;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #475569;
+  cursor: pointer;
+}
+.v2-btn-min-expand:active {
+  background: #e2e8f0;
+}
+
 .v2-card-grip {
   width: 100%;
   padding: 8px 0 4px;
@@ -1344,4 +1457,64 @@ body, html {
 .status-toast.show {
   opacity: 1;
   transform: translateX(-50%) translateY(0);
+}
+
+/* ==========================================================
+   태블릿 및 가로모드(Landscape) 최적화: 좌측 사이드바 배치
+   ========================================================== */
+@media (orientation: landscape) and (min-width: 600px), (min-width: 860px) {
+  .v2-bottom-card {
+    position: absolute;
+    top: 14px;
+    bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+    left: 14px;
+    right: auto;
+    width: 380px;
+    max-width: 380px;
+    height: auto;
+    max-height: calc(100vh - 28px);
+    max-height: calc(100dvh - 28px);
+    margin: 0;
+    border-radius: 20px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    z-index: 45;
+  }
+
+  .v2-bottom-card.minimized {
+    width: auto;
+    height: auto;
+    top: auto;
+    bottom: 14px;
+    left: 14px;
+  }
+
+  .v2-card-body {
+    flex: 1;
+    overflow-y: auto;
+  }
+
+  .v2-facility-list-scroll {
+    max-height: 260px;
+  }
+
+  /* 상단 헤더 검색바: 좌측 사이드바 우측에 나란히 배치 */
+  .v2-top-header {
+    left: 410px;
+    right: auto;
+    width: 420px;
+    margin: 0;
+  }
+
+  .v2-btn-re-search-pill {
+    left: calc(410px + 210px);
+  }
+
+  /* 도보 내비 HUD 가로모드 시 좌측 배치 */
+  .v2-nav-hud {
+    left: 14px;
+    right: auto;
+    width: 380px;
+  }
 }

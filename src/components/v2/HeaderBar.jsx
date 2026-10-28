@@ -58,15 +58,6 @@ export default function HeaderBar({
             </button>
           )}
         </form>
-
-        <button
-          type="button"
-          className="v2-btn-gps"
-          onClick={onResetGps}
-          title="내 GPS 위치로 지도 이동"
-        >
-          <Crosshair size={17} />
-        </button>
       </div>
 
       {/* 2. 미니 가로 필터 칩 (지금 개방 원터치 지원) */}

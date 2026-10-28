@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Navigation,
   Heart,
@@ -12,13 +12,14 @@ import {
   List,
   Clock,
   Sparkles,
+  EyeOff,
 } from 'lucide-react';
 
 /**
- * 🫀 Heartisense 감성의 모바일 세로모드 최적화 하단 긴급 카드
- * - 한눈에 보이는 대형 '도보 길안내 시작' 히어로 버튼 (절대 놓칠 수 없음)
- * - CPR 메트로놈, 119 즉시 통화, 실사 점검, 외부 카카오맵 연동
- * - 주변 시설 목록(리스트) 서랍형 확장 제공
+ * 🫀 Heartisense 감성의 가로/세로 모바일·태블릿 최적화 하단/사이드 긴급 카드
+ * - 한눈에 보이는 대형 '도보 길안내 시작' 히어로 버튼
+ * - 네이버지도처럼 지도를 가리지 않게 최소화(접기) 기능 지원
+ * - 가로모드 시 좌측 플로팅 패널로 자동 전환
  */
 export default function EmergencyBottomCard({
   facility,
@@ -31,7 +32,9 @@ export default function EmergencyBottomCard({
   isExpanded,
   onToggleExpand,
 }) {
-  // 시설 데이터가 아직 로딩 중이거나 없는 경우의 긴급 폴백 바
+  const [isMinimized, setIsMinimized] = useState(false);
+
+  // 시설 데이터가 아직 로딩 중이거나 없는 경우의 긴급 대기 바
   if (!facility) {
     return (
       <section className="v2-bottom-card empty-state" aria-label="긴급 안전시설 대기 바">
@@ -69,14 +72,77 @@ export default function EmergencyBottomCard({
   // 카카오맵 외부 길찾기 URL
   const kakaoMapUrl = `https://map.kakao.com/link/to/${encodeURIComponent(facility.name)},${facility.lat},${facility.lon}`;
 
+  // 🌟 네이버지도처럼 완전히 접혔을 때의 초미니 바 (지도 시야 100% 확보)
+  if (isMinimized) {
+    return (
+      <section
+        className="v2-bottom-card minimized"
+        aria-label="안전시설 요약 바"
+        onClick={() => setIsMinimized(false)}
+      >
+        <div className="v2-card-minimized-row">
+          <div className="v2-min-left">
+            <span className={`v2-tag-cat mini ${isAed ? 'aed' : 'shelter'}`}>
+              {isAed ? 'AED' : '대피소'}
+            </span>
+            <strong className="v2-min-name">{facility.name}</strong>
+            <span className="v2-min-dist">
+              {dist}m <small>({timeText})</small>
+            </span>
+          </div>
+
+          <div className="v2-min-actions">
+            <button
+              type="button"
+              className="v2-btn-min-nav"
+              onClick={(e) => {
+                e.stopPropagation();
+                onStartNavigation(facility);
+              }}
+              title="도보 길안내 시작"
+            >
+              <Navigation size={13} />
+              <span>길안내</span>
+            </button>
+
+            <button
+              type="button"
+              className="v2-btn-min-expand"
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsMinimized(false);
+              }}
+              title="상세 정보 및 목록 펼치기"
+            >
+              <ChevronUp size={16} />
+              <span>펼치기</span>
+            </button>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section
       className={`v2-bottom-card ${isExpanded ? 'expanded' : ''}`}
       aria-label="긴급 안전시설 정보 및 길안내"
     >
-      {/* 1. 상단 그립 바 (탭 시 주변 목록 접기/펼치기) */}
-      <div className="v2-card-grip" onClick={onToggleExpand}>
-        <div className="v2-grip-line"></div>
+      {/* 1. 상단 그립 바 및 '지도 넓게 보기(접기)' 버튼 */}
+      <div className="v2-card-header-bar">
+        <div className="v2-card-grip" onClick={onToggleExpand}>
+          <div className="v2-grip-line"></div>
+        </div>
+
+        <button
+          type="button"
+          className="v2-btn-collapse-card"
+          onClick={() => setIsMinimized(true)}
+          title="네이버지도처럼 카드 접고 지도 넓게 보기"
+        >
+          <EyeOff size={13} />
+          <span>지도 넓게 보기</span>
+        </button>
       </div>
 
       <div className="v2-card-body">
@@ -135,7 +201,7 @@ export default function EmergencyBottomCard({
           )}
         </div>
 
-        {/* 4. 🌟 [핵심 1] 대형 도보 길안내 시작 히어로 버튼 (누구나 즉시 확인 가능) */}
+        {/* 4. 🌟 대형 도보 길안내 시작 히어로 버튼 (절대 놓칠 수 없음) */}
         <button
           type="button"
           className="v2-hero-nav-btn"
@@ -155,7 +221,7 @@ export default function EmergencyBottomCard({
           </div>
         </button>
 
-        {/* 5. 🌟 [핵심 2] 4대 긴급 보조 액션 버튼 바 */}
+        {/* 5. 4대 긴급 보조 액션 버튼 바 */}
         <div className="v2-action-bar-row">
           {/* A. 105 BPM CPR 메트로놈 */}
           <button
@@ -202,7 +268,7 @@ export default function EmergencyBottomCard({
           </a>
         </div>
 
-        {/* 6. 🌟 [핵심 3] 주변 시설 목록 (리스트) 접기/펼치기 토글 */}
+        {/* 6. 주변 시설 목록 (리스트) 접기/펼치기 서랍 */}
         {facilities.length > 1 && (
           <div className="v2-nearby-drawer-section">
             <button

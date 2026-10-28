@@ -104,7 +104,7 @@ export default function MapView({
     markersRef.current = newMarkers;
   }, [facilities, selectedFacility, onSelectFacility]);
 
-  // 4. 도보 내비게이션 경로선 (Polyline) 렌더링
+  // 4. 도보 내비게이션 경로선 (Polyline) 렌더링 (배열 및 객체 좌표 완벽 파싱)
   useEffect(() => {
     if (!mapRef.current || !window.kakao?.maps) return;
 
@@ -113,26 +113,53 @@ export default function MapView({
       routePolylineRef.current = null;
     }
 
-    if (navRouteCoordinates && navRouteCoordinates.length > 0) {
-      const linePath = navRouteCoordinates.map(
-        ([lon, lat]) => new window.kakao.maps.LatLng(lat, lon)
-      );
+    if (navRouteCoordinates && Array.isArray(navRouteCoordinates) && navRouteCoordinates.length > 0) {
+      try {
+        const linePath = navRouteCoordinates
+          .map((pt) => {
+            if (!pt) return null;
+            let lat, lon;
+            if (Array.isArray(pt)) {
+              if (pt[0] > 90) {
+                lon = pt[0];
+                lat = pt[1];
+              } else {
+                lat = pt[0];
+                lon = pt[1];
+              }
+            } else if (typeof pt === 'object') {
+              lat = pt.lat !== undefined ? pt.lat : (pt.latitude !== undefined ? pt.latitude : pt.y);
+              lon = pt.lng !== undefined ? pt.lng : (pt.lon !== undefined ? pt.lon : (pt.longitude !== undefined ? pt.longitude : pt.x));
+            }
+            const numLat = parseFloat(lat);
+            const numLon = parseFloat(lon);
+            if (!isNaN(numLat) && !isNaN(numLon) && numLat > 0 && numLon > 0) {
+              return new window.kakao.maps.LatLng(numLat, numLon);
+            }
+            return null;
+          })
+          .filter(Boolean);
 
-      const polyline = new window.kakao.maps.Polyline({
-        path: linePath,
-        strokeWeight: 7,
-        strokeColor: '#2563eb',
-        strokeOpacity: 0.9,
-        strokeStyle: 'solid',
-      });
+        if (linePath.length > 0) {
+          const polyline = new window.kakao.maps.Polyline({
+            path: linePath,
+            strokeWeight: 6,
+            strokeColor: '#2563eb',
+            strokeOpacity: 0.9,
+            strokeStyle: 'solid',
+          });
 
-      polyline.setMap(mapRef.current);
-      routePolylineRef.current = polyline;
+          polyline.setMap(mapRef.current);
+          routePolylineRef.current = polyline;
 
-      // 경로 전체가 보이도록 바운즈 맞춤
-      const bounds = new window.kakao.maps.LatLngBounds();
-      linePath.forEach((pt) => bounds.extend(pt));
-      mapRef.current.setBounds(bounds);
+          // 경로 전체가 보이도록 바운즈 맞춤
+          const bounds = new window.kakao.maps.LatLngBounds();
+          linePath.forEach((pt) => bounds.extend(pt));
+          mapRef.current.setBounds(bounds);
+        }
+      } catch (err) {
+        console.error('Polyline render error:', err);
+      }
     }
   }, [navRouteCoordinates]);
 
