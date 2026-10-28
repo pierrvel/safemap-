@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { RotateCw } from 'lucide-react';
 import './v2.css';
 
 import HeaderBar from './components/v2/HeaderBar';
@@ -39,6 +40,10 @@ export default function App() {
   const [isCardExpanded, setIsCardExpanded] = useState(false);
   const [toastMessage, setToastMessage] = useState(null);
   const [isSearching, setIsSearching] = useState(false);
+
+  // 지도 카메라 및 '이 지역에서 재검색' 상태 (내 위치와 카메라 분리!)
+  const [cameraCenter, setCameraCenter] = useState(null);
+  const [showReSearchBtn, setShowReSearchBtn] = useState(false);
 
   // 1. 서버 설정 조회
   useEffect(() => {
@@ -241,6 +246,21 @@ export default function App() {
     showToast('길안내를 종료했습니다.');
   };
 
+  // 🌟 핵심: 지도를 드래그했을 때 '내 위치'는 건드리지 않고 카메라 중심만 기록
+  const handleCameraMove = useCallback((newCenter) => {
+    setCameraCenter(newCenter);
+    setShowReSearchBtn(true);
+  }, []);
+
+  // 🌟 사용자가 원할 때만 현 지도 중심으로 안전시설 재탐색 (내 위치는 보존!)
+  const handleReSearchInArea = () => {
+    if (cameraCenter) {
+      loadFacilities(cameraCenter.lat, cameraCenter.lon, category);
+      setShowReSearchBtn(false);
+      showToast('📍 현 지도 위치 주변 시설을 새로 탐색했습니다.');
+    }
+  };
+
   // 현재 표시할 1순위 시설
   const activeFacility = selectedFacility || displayedFacilities[0] || null;
 
@@ -254,12 +274,11 @@ export default function App() {
         selectedFacility={activeFacility}
         onSelectFacility={(fac) => setSelectedFacility(fac)}
         navRouteCoordinates={navData?.coordinates || null}
-        onReSearch={(newLat, newLon) => {
-          setManualCoords(newLat, newLon);
-        }}
+        onCameraMove={handleCameraMove}
         onRequestGps={() => {
           requestGps(true);
-          showToast('실제 GPS 위치로 지도를 재설정합니다.');
+          setShowReSearchBtn(false);
+          showToast('내 GPS 위치로 지도를 이동합니다.');
         }}
       />
 
@@ -274,20 +293,36 @@ export default function App() {
           onSearch={handleSearch}
           onResetGps={() => {
             requestGps(true);
+            setShowReSearchBtn(false);
             showToast('내 위치로 지도를 이동합니다.');
           }}
           isSearching={isSearching}
         />
       )}
 
-      {/* 3. 하단 긴급 카드 (Heartisense 헬스케어 스타일) */}
-      {!isNavigating && activeFacility && (
+      {/* 2.5 🌟 현 지도 중심 재검색 플로팅 버튼 (지도를 움직여도 내 위치 핀은 고정!) */}
+      {showReSearchBtn && !isNavigating && (
+        <button
+          type="button"
+          className="v2-btn-re-search-pill"
+          onClick={handleReSearchInArea}
+          title="현재 보고 있는 지도 중심으로 안전시설 다시 찾기"
+        >
+          <RotateCw size={13} />
+          <span>이 지역에서 재검색</span>
+        </button>
+      )}
+
+      {/* 3. 🌟 하단 긴급 카드 (도보 길안내 히어로 버튼 & 주변 시설 리스트 포함) */}
+      {!isNavigating && (
         <EmergencyBottomCard
           facility={activeFacility}
-          isNearest={activeFacility.id === displayedFacilities[0]?.id}
+          facilities={displayedFacilities}
+          isNearest={activeFacility?.id === displayedFacilities[0]?.id}
           onStartNavigation={handleStartNavigation}
           onOpenCpr={() => setShowCprModal(true)}
           onOpenAudit={() => setShowAuditModal(true)}
+          onSelectFacility={(fac) => setSelectedFacility(fac)}
           isExpanded={isCardExpanded}
           onToggleExpand={() => setIsCardExpanded((prev) => !prev)}
         />

@@ -2,7 +2,6 @@ import React, { useEffect, useRef, useCallback } from 'react';
 import {
   createCustomPinIcon,
   createUserLocationIcon,
-  createClusterPinIcon,
 } from '../../utils/mapIcons';
 
 export default function MapView({
@@ -12,7 +11,7 @@ export default function MapView({
   selectedFacility,
   onSelectFacility,
   navRouteCoordinates,
-  onReSearch,
+  onCameraMove,
   onRequestGps,
 }) {
   const mapContainerRef = useRef(null);
@@ -20,8 +19,9 @@ export default function MapView({
   const userMarkerRef = useRef(null);
   const markersRef = useRef([]);
   const routePolylineRef = useRef(null);
+  const isInitialCenteringDone = useRef(false);
 
-  // 1. 지도 초기화
+  // 1. 지도 초기화 (최초 1회만 내 GPS 위치로 중심 설정)
   useEffect(() => {
     if (!isLoaded || !mapContainerRef.current || mapRef.current) return;
 
@@ -38,17 +38,21 @@ export default function MapView({
     mapRef.current = map;
     map.setDraggable(true);
     map.setZoomable(true);
+    isInitialCenteringDone.current = true;
 
-    // 지도 이동 완료 시 중심 좌표 재검색 트리거
+    // 🌟 핵심 수정: 지도 드래그 시 내 위치를 옮기지 않고, 카메라 중심 이동만 부모에 알림
     window.kakao.maps.event.addListener(map, 'dragend', () => {
       const center = map.getCenter();
-      if (onReSearch) {
-        onReSearch(center.getLat(), center.getLng());
+      if (onCameraMove) {
+        onCameraMove({
+          lat: center.getLat(),
+          lon: center.getLng(),
+        });
       }
     });
-  }, [isLoaded, userCoords, onReSearch]);
+  }, [isLoaded, userCoords, onCameraMove]);
 
-  // 2. 사용자 위치 마커 갱신
+  // 2. 🌟 사용자 위치 마커 갱신 (지도를 아무리 움직여도 내 위치는 실제 GPS 좌표에 고정!)
   useEffect(() => {
     if (!mapRef.current || !window.kakao?.maps) return;
 
@@ -59,7 +63,7 @@ export default function MapView({
         position: pos,
         image: createUserLocationIcon(),
         map: mapRef.current,
-        zIndex: 10,
+        zIndex: 15,
       });
       userMarkerRef.current = marker;
     } else {
@@ -89,6 +93,9 @@ export default function MapView({
 
       window.kakao.maps.event.addListener(marker, 'click', () => {
         onSelectFacility(fac);
+        if (mapRef.current) {
+          mapRef.current.panTo(pos);
+        }
       });
 
       return marker;
@@ -97,14 +104,7 @@ export default function MapView({
     markersRef.current = newMarkers;
   }, [facilities, selectedFacility, onSelectFacility]);
 
-  // 4. 선택 시설로 부드럽게 지도 중심 이동
-  useEffect(() => {
-    if (!mapRef.current || !selectedFacility) return;
-    const pos = new window.kakao.maps.LatLng(selectedFacility.lat, selectedFacility.lon);
-    mapRef.current.panTo(pos);
-  }, [selectedFacility]);
-
-  // 5. 도보 내비게이션 경로선 (Polyline) 렌더링
+  // 4. 도보 내비게이션 경로선 (Polyline) 렌더링
   useEffect(() => {
     if (!mapRef.current || !window.kakao?.maps) return;
 
@@ -158,13 +158,13 @@ export default function MapView({
     <div className="v2-map-wrapper">
       <div id="v2MapContainer" ref={mapContainerRef} className="v2-map-canvas" />
 
-      {/* 우측 상단 플로팅 미니 컨트롤 */}
+      {/* 우측 플로팅 컨트롤 */}
       <div className="v2-map-fab-stack">
         <button
           type="button"
           className="v2-fab-btn gps"
           onClick={handleSnapGps}
-          title="내 위치로 이동"
+          title="내 실제 위치로 지도 이동"
         >
           📍
         </button>
