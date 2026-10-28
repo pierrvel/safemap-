@@ -7,8 +7,61 @@ const fs = require('fs');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(cors());
+// CORS 허용 도메인 엄격 제한 (Vercel 배포 및 로컬 개발 환경 허용)
+const allowedOrigins = [
+  'https://prompt-bismuth-avyohx5.vercel.app',
+  'http://localhost:5173',
+  'http://localhost:3000',
+  'http://127.0.0.1:5173',
+  'http://127.0.0.1:3000',
+];
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.includes(origin) || origin.endsWith('.vercel.app')) {
+        return callback(null, true);
+      }
+      return callback(new Error('Not allowed by CORS'));
+    },
+    credentials: true,
+  })
+);
 app.use(express.json());
+
+// 간단한 인메모리 Rate Limiter (IP당 분당 최대 120회 요청 제한으로 공공데이터 API 쿼터 보호)
+const rateLimitMap = new Map();
+const RATE_LIMIT_WINDOW_MS = 60 * 1000;
+const RATE_LIMIT_MAX_REQUESTS = 120;
+
+app.use('/api', (req, res, next) => {
+  const ip =
+    (req.headers['x-forwarded-for'] && String(req.headers['x-forwarded-for']).split(',')[0].trim()) ||
+    req.socket?.remoteAddress ||
+    'unknown';
+  const now = Date.now();
+  let entry = rateLimitMap.get(ip);
+  if (!entry || now > entry.resetAt) {
+    entry = { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS };
+    rateLimitMap.set(ip, entry);
+  } else {
+    entry.count++;
+    if (entry.count > RATE_LIMIT_MAX_REQUESTS) {
+      return res.status(429).json({
+        success: false,
+        message: '요청 횟수 제한(분당 120회)을 초과했습니다. 잠시 후 다시 시도해주세요.',
+      });
+    }
+  }
+
+  if (rateLimitMap.size > 500) {
+    for (const [key, val] of rateLimitMap.entries()) {
+      if (now > val.resetAt) rateLimitMap.delete(key);
+    }
+  }
+  next();
+});
 const staticDir = fs.existsSync(path.join(__dirname, 'dist'))
   ? path.join(__dirname, 'dist')
   : path.join(__dirname, 'public');
@@ -157,19 +210,6 @@ function getWalkingTimeText(distanceMeters) {
     return `약 ${Math.max(seconds, 10)}초`;
   }
   return `약 ${minutes}분 ${seconds > 0 ? seconds + '초' : ''}`;
-}
-
-// AED 일련번호에서 설치/등록 연도 추출 (형식: 062-221116-094080 -> 2022)
-function parseInstallYearFromSerial(serialSeq) {
-  if (!serialSeq) return null;
-  const parts = String(serialSeq).split('-');
-  if (parts.length >= 2 && parts[1].length >= 2) {
-    const yy = parseInt(parts[1].substring(0, 2), 10);
-    if (!isNaN(yy)) {
-      return yy < 50 ? 2000 + yy : 1900 + yy;
-    }
-  }
-  return null;
 }
 
 // 한국 표준시 (KST, UTC+9) 기준 현재 요일 및 시각 계산 (Vercel 클라우드 서버 UTC 시차 완벽 보정)
@@ -514,9 +554,6 @@ function getNearbyShelters(centerLat, centerLon, maxRadiusMeters = 5000) {
         floorType: s.floorType,
         // 🌟 [6] 출처 불명 번호(1588-3650) 및 응급신고용 119 제거
         clerkTel: '관할 시·군·구 재난안전과 문의',
-        installYear: '지정 대피소',
-        age: '운영중',
-        isAged: false,
         reportsCount: reports.length,
         reports,
         checkin: facilityCheckins[facilityId] || null,
@@ -529,6 +566,10 @@ function getNearbyShelters(centerLat, centerLon, maxRadiusMeters = 5000) {
   return matched.slice(0, 30);
 }
 
+// 🌟 [8] 위경도 소수점 3자리(~100m) 격자 기반 인메모리 캐시 (공공데이터 API 쿼터 절약 및 빠른 응답)
+const facilityGridCache = new Map();
+const FACILITY_CACHE_TTL_MS = 60 * 1000; // 60초 캐시
+
 // 메인 시설 목록 API (전처리 및 최단거리 분석 적용)
 app.get(['/api/facilities', '/facilities'], async (req, res) => {
   try {
@@ -537,7 +578,37 @@ app.get(['/api/facilities', '/facilities'], async (req, res) => {
     const categoryFilter = req.query.category || 'all'; // all, aed, extinguisher, hydrant
     const verifiedOnly = req.query.verifiedOnly === 'true'; // 즉시 사용 가능한 장비만 필터링
 
-    // 전처리 통계 카운터 (연구계획서 2단계 결과 보고용)
+    // 🌟 [8] 위경도 ~100m 격자 캐시 확인 (캐시 적중 시 사용자 현재 좌표 기준 거리만 재계산)
+    const gridKey = `${lat.toFixed(3)}_${lon.toFixed(3)}_${categoryFilter}_${verifiedOnly}`;
+    const cachedEntry = facilityGridCache.get(gridKey);
+    if (cachedEntry && Date.now() - cachedEntry.timestamp < FACILITY_CACHE_TTL_MS) {
+      const adjustedFacilities = cachedEntry.facilities
+        .map((f) => {
+          const dist = calculateDistanceMeters(lat, lon, f.lat, f.lon);
+          return {
+            ...f,
+            distanceMeters: dist,
+            walkingTime: getWalkingTimeText(dist),
+          };
+        })
+        .sort((a, b) => a.distanceMeters - b.distanceMeters);
+
+      if (adjustedFacilities.length > 0) {
+        adjustedFacilities[0].isNearest = true;
+      }
+
+      return res.json({
+        success: true,
+        userLocation: { lat, lon },
+        stats: cachedEntry.stats,
+        nearest: adjustedFacilities.length > 0 ? adjustedFacilities[0] : null,
+        backup24h: cachedEntry.backup24h,
+        facilities: adjustedFacilities,
+        cached: true,
+      });
+    }
+
+    // 전처리 통계 카운터
     const stats = {
       totalCollected: 0,
       invalidCoordsRemoved: 0,
@@ -566,12 +637,6 @@ app.get(['/api/facilities', '/facilities'], async (req, res) => {
               return null;
             }
 
-            // [전처리 2: 등록일/노후도 분석]
-            const installYear = parseInstallYearFromSerial(raw.serialSeq);
-            const currentYear = new Date().getFullYear();
-            const age = installYear ? currentYear - installYear : null;
-            const isAged = age !== null && age >= 8; // 8년 이상 노후 또는 배터리 교체주기 초과 의심
-
             // 🌟 [5] 단일 통합 함수로 운영시간 요약, 24시간 여부, 현재 개방 여부 동시 산출 (모순 원천 제거)
             const opInfo = calculateAedOperatingInfo(raw);
             const availableNow = opInfo.availableNow;
@@ -592,15 +657,10 @@ app.get(['/api/facilities', '/facilities'], async (req, res) => {
             const unconfirmedReportCount = reports.length;
 
             // 즉시 가용 필터(verifiedOnly) 적용 시:
-            // 🌟 [4] 악용 방지: 단 1건의 익명 제보로 멀쩡한 시설을 즉시 삭제/숨기지 않고 플래그만 관리
+            // 🌟 [8-1] 비공식적/근거없는 '노후' 판정 제거 - 가용 상태(availableNow)만 고려
             if (verifiedOnly) {
-              if (isAged) {
-                stats.agedEquipmentFiltered++;
-                return null;
-              }
-              if (!availableNow) {
+              if (availableNow === false) {
                 stats.unavailableHoursFiltered++;
-                // 야간 시간대에 모든 AED가 사라지는 현상을 방지하기 위해 완전 삭제 대신 플래그 유지
               }
             }
 
@@ -644,16 +704,13 @@ app.get(['/api/facilities', '/facilities'], async (req, res) => {
               model: raw.model || '표준 모델',
               mfg: raw.mfg || '제조사 정보 없음',
               clerkTel: raw.clerkTel || raw.managerTel || '119',
-              installYear: installYear || '미상',
-              age: age !== null ? `${age}년` : '확인 불가',
-              isAged,
               availableNow,
               operatingHours,
               unconfirmedReportCount,
               reportsCount: reports.length,
               reports,
               checkin: facilityCheckins[facilityId] || null,
-              verified: !isAged && availableNow,
+              verified: availableNow === true,
             };
           })
         );
@@ -696,6 +753,20 @@ app.get(['/api/facilities', '/facilities'], async (req, res) => {
     }
 
     stats.finalUsableCount = allFacilities.length;
+
+    // 🌟 [8] 위경도 격자 캐시 저장 (메모리 누수 방지 위해 최대 200개 제한)
+    facilityGridCache.set(gridKey, {
+      timestamp: Date.now(),
+      facilities: allFacilities,
+      stats,
+      backup24h,
+    });
+    if (facilityGridCache.size > 200) {
+      const now = Date.now();
+      for (const [k, v] of facilityGridCache.entries()) {
+        if (now - v.timestamp > FACILITY_CACHE_TTL_MS) facilityGridCache.delete(k);
+      }
+    }
 
     res.json({
       success: true,
@@ -817,7 +888,10 @@ app.post(['/api/routes/matrix', '/routes/matrix'], async (req, res) => {
 
     let data = null;
     try {
-      const resp = await fetch(url, { signal: AbortSignal.timeout(4000) });
+      const resp = await fetch(url, {
+        headers: { 'User-Agent': 'GoldenTime-SafeMap/1.0 (Emergency SafeMap Service)' },
+        signal: AbortSignal.timeout(4000),
+      });
       if (resp.ok) {
         data = await resp.json();
       }
@@ -876,7 +950,10 @@ app.post(['/api/routes/directions', '/routes/directions'], async (req, res) => {
 
     let data = null;
     try {
-      const resp = await fetch(url, { signal: AbortSignal.timeout(5000) });
+      const resp = await fetch(url, {
+        headers: { 'User-Agent': 'GoldenTime-SafeMap/1.0 (Emergency SafeMap Service)' },
+        signal: AbortSignal.timeout(5000),
+      });
       if (resp.ok) {
         data = await resp.json();
       }
@@ -968,8 +1045,8 @@ app.post(['/api/routes/directions', '/routes/directions'], async (req, res) => {
       durationSeconds: estSec,
       walkingTimeText: mins === 0 ? `약 ${Math.max(secs, 10)}초` : `약 ${mins}분 ${secs > 0 ? secs + '초' : ''}`,
       coordinates: [
-        [oLon, oLat],
-        [dLon, dLat]
+        { lat: oLat, lng: oLon },
+        { lat: dLat, lng: dLon }
       ],
       steps: [
         { stepIndex: 1, icon: '🏁', instruction: `출발지에서 목적지 방면으로 보행`, distanceMeters: Math.round(estDist / 2) },
