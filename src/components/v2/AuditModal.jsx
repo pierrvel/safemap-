@@ -3,9 +3,8 @@ import { X, CheckCircle2, AlertTriangle, ShieldCheck, Camera, Send } from 'lucid
 import { submitCheckin, submitReport } from '../../services/api';
 
 /**
- * 📋 소방서·시민 합동 AED 실사 점검 및 상태 인증 모달
- * - 소방서/보건소의 'AED 관리 인력 부족' 한계를 크라우드소싱으로 해결
- * - 배터리 정상 여부, 패드 유효기간, 보관함 잠금 상태 실시간 확인
+ * 📋 시민 참여 AED 현장 실사 점검 모달
+ * - 배터리 정상 여부, 패드 유효기간, 보관함 잠금 상태 현장 확인 기록
  */
 export default function AuditModal({ facility, isOpen, onClose, onSuccess }) {
   const [powerStatus, setPowerStatus] = useState('NORMAL'); // 'NORMAL' | 'ISSUE'
@@ -39,7 +38,7 @@ export default function AuditModal({ facility, isOpen, onClose, onSuccess }) {
         });
       }
       setSubmitting(false);
-      onSuccess?.('✅ AED 실사 점검이 정상 접수되었습니다. 관내 안전망에 실시간 반영됩니다.');
+      onSuccess?.('✅ AED 현장 점검 기록이 저장되었습니다.');
       onClose();
     } catch (err) {
       setSubmitting(false);
@@ -152,15 +151,9 @@ export default function AuditModal({ facility, isOpen, onClose, onSuccess }) {
             />
           </div>
 
-          {/* 소방 연계 안내 배지 */}
-          <div className="v2-audit-badge-notice">
-            <span>🛡️</span>
-            <span>입력하신 점검 데이터는 관할 소방서 및 보건소 AED 실태 조사와 연동됩니다.</span>
-          </div>
-
           <button type="submit" className="v2-btn-submit-audit" disabled={submitting}>
             <Send size={16} />
-            <span>{submitting ? '제출 중...' : '점검 완료 및 안심 인증 등록'}</span>
+            <span>{submitting ? '제출 중...' : '점검 기록 제출'}</span>
           </button>
         </form>
       </div>

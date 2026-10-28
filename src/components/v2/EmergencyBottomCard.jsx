@@ -281,7 +281,7 @@ export default function EmergencyBottomCard({
             {isCalibrated && (
               <span
                 className="v2-tag-status calibrated"
-                title="공공데이터포털 300m 오차를 건물 위치로 정밀 보정 완료"
+                title="건물 위치 기준 좌표입니다"
               >
                 <Sparkles size={11} /> 위치 자동 보정됨
               </span>
@@ -368,12 +368,12 @@ export default function EmergencyBottomCard({
             <span>119 신고</span>
           </a>
 
-          {/* C. 소방 연계 실사 점검 */}
+          {/* C. 현장 실사 점검 */}
           <button
             type="button"
             className="v2-action-pill audit"
             onClick={onOpenAudit}
-            title="소방관·시민 현장 실사 점검"
+            title="현장 실사 점검"
           >
             <ClipboardCheck size={16} />
             <span>실사 점검</span>

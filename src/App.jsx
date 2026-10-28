@@ -477,7 +477,7 @@ export default function App() {
         onClose={() => setShowCprModal(false)}
       />
 
-      {/* 6. 소방서·시민 합동 AED 실사 점검 모달 */}
+      {/* 6. 시민 참여 AED 현장 실사 점검 모달 */}
       <AuditModal
         facility={activeFacility}
         isOpen={showAuditModal}

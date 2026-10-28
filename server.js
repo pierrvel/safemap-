@@ -427,7 +427,6 @@ function getNearbyShelters(centerLat, centerLon, maxRadiusMeters = 5000) {
         id: facilityId,
         category: 'shelter',
         categoryName: '민방위 대피소',
-        locationConfidence: 'HIGH', // 행정안전부 공인 정밀좌표
         available24h: true, // 대피시설 상시대피 가능
         availableNow: true,
         operatingHours: '24시간 긴급 상시대피',
@@ -530,7 +529,7 @@ app.get(['/api/facilities', '/facilities'], async (req, res) => {
             // [좌표 정밀도 교차 검증 및 지오코딩 자동 보정]
             let finalLat = itemLat;
             let finalLon = itemLon;
-            let locationConfidence = 'HIGH'; // 공공데이터포털 공인 정밀좌표
+            let locationConfidence = 'NORMAL';
             let calibrationOffsetMeters = 0;
 
             if (raw.buildAddress || raw.org) {
@@ -663,7 +662,7 @@ app.post(['/api/checkin', '/checkin'], (req, res) => {
 
   res.json({
     success: true,
-    message: status === 'NORMAL' ? '정상 비치 확인이 접수되었습니다. 다른 시민들에게 신뢰 정보로 공유됩니다.' : '잠김/고장 신고가 접수되었습니다.',
+    message: status === 'NORMAL' ? '정상 비치 확인이 접수되었습니다.' : '잠김/고장 신고가 접수되었습니다.',
     checkin: prev,
   });
 });
@@ -700,7 +699,7 @@ app.post(['/api/reports', '/api/report', '/reports', '/report'], (req, res) => {
 
   res.json({
     success: true,
-    message: '제보가 성공적으로 접수되었습니다. 긴급 안전망 검증에 반영됩니다.',
+    message: '제보가 성공적으로 접수되었습니다.',
     report: newReport,
   });
 });
