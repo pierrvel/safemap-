@@ -467,11 +467,16 @@ function getShelters() {
 // 사용자 위치 기준 반경 내 민방위 대피시설 탐색 (반경 5km 내 최대 30개소)
 function getNearbyShelters(centerLat, centerLon, maxRadiusMeters = 5000) {
   const shelters = getShelters();
-  const deg = maxRadiusMeters / 100000;
-  const minLat = centerLat - deg;
-  const maxLat = centerLat + deg;
-  const minLon = centerLon - deg;
-  const maxLon = centerLon + deg;
+
+  // 🌟 [6] 한국 위도(약 37도)에 맞춘 경도 폭 cos(lat) 정밀 보정 (동서쪽 시설 누락 방지)
+  const degLat = maxRadiusMeters / 111000;
+  const cosLat = Math.max(0.2, Math.cos((centerLat * Math.PI) / 180));
+  const degLon = maxRadiusMeters / (111000 * cosLat);
+
+  const minLat = centerLat - degLat;
+  const maxLat = centerLat + degLat;
+  const minLon = centerLon - degLon;
+  const maxLon = centerLon + degLon;
 
   const candidates = shelters.filter(s =>
     s.lat >= minLat && s.lat <= maxLat && s.lon >= minLon && s.lon <= maxLon
@@ -484,20 +489,22 @@ function getNearbyShelters(centerLat, centerLon, maxRadiusMeters = 5000) {
       const facilityId = s.id;
       const reports = userReports.filter(r => r.facilityId === facilityId);
       const hasIssueReport = reports.length > 0;
-      const capText = s.capacity > 0 ? `최대 수용 ${s.capacity.toLocaleString()}명` : '수용인원 미상';
-      const areaText = s.area > 0 ? ` (${s.area.toLocaleString()}㎡)` : '';
+
+      // 🌟 [6] 수용인원과 면적 중복 문제: 불확실한 수용인원 추정치 대신 행안부 등록 면적(㎡)을 우선 표시
+      const areaText = s.area > 0 ? `대피 면적 ${s.area.toLocaleString()}㎡` : '면적 정보 미제공';
 
       matched.push({
         id: facilityId,
         category: 'shelter',
         categoryName: '민방위 대피소',
-        available24h: true, // 대피시설 상시대피 가능
-        availableNow: true,
-        operatingHours: '24시간 긴급 상시대피',
+        // 🌟 [6] 아파트/지하주차장/종교시설 등 평시 개방 여부 불명확하므로 근거 없는 24시간 표기 제거
+        available24h: false,
+        availableNow: null,
+        operatingHours: '개방 여부 정보 없음',
         name: s.name,
         org: '행정안전부 민방위',
         buildAddress: s.buildAddress,
-        buildPlace: `${s.floorType}대피소 · ${capText}${areaText}`,
+        buildPlace: `${s.floorType}대피소 · ${areaText}`,
         lat: s.lat,
         lon: s.lon,
         distanceMeters: dist,
@@ -505,8 +512,9 @@ function getNearbyShelters(centerLat, centerLon, maxRadiusMeters = 5000) {
         capacity: s.capacity,
         area: s.area,
         floorType: s.floorType,
-        clerkTel: '119 소방관서 / 1588-3650 재난상황실',
-        installYear: '공인 지정',
+        // 🌟 [6] 출처 불명 번호(1588-3650) 및 응급신고용 119 제거
+        clerkTel: '관할 시·군·구 재난안전과 문의',
+        installYear: '지정 대피소',
         age: '운영중',
         isAged: false,
         reportsCount: reports.length,

@@ -327,9 +327,9 @@ export default function EmergencyBottomCard({
             </span>
           </div>
 
-          {/* AED별 간결한 1줄 운영시간 표기 */}
+          {/* 간결한 1줄 운영시간 표기 */}
           {facility.operatingHours && (
-            <div className={`v2-facility-hours ${isAvailableNow ? 'open' : 'closed'}`}>
+            <div className={`v2-facility-hours ${isAvailableNow ? 'open' : (isUnavailableNow ? 'closed' : '')}`}>
               <Clock size={12} className="v2-hours-icon" />
               <span>{facility.operatingHours}</span>
             </div>
