@@ -13,6 +13,13 @@ import {
   Clock,
   Sparkles,
   EyeOff,
+  Zap,
+  Shield,
+  AlertTriangle,
+  CheckCircle2,
+  ChevronRight,
+  Search,
+  LocateFixed,
 } from 'lucide-react';
 
 /**
@@ -29,10 +36,12 @@ export default function EmergencyBottomCard({
   onOpenCpr,
   onOpenAudit,
   onSelectFacility,
+  openAedAlternative = null,
   isExpanded,
   onToggleExpand,
   isLocating = false,
   locationError = null,
+  onRetryLocation,
   isCachedView = false,
 }) {
   // 🌟 네이티브 앱 수준의 3단계 스냅 상태 관리
@@ -111,10 +120,12 @@ export default function EmergencyBottomCard({
               </>
             ) : locationError ? (
               <>
-                <div className="v2-empty-icon" style={{ fontSize: '22px' }}>📍</div>
+                <div className="v2-empty-icon">
+                  <MapPin size={20} />
+                </div>
                 <div className="v2-empty-text">
                   <strong>위치를 확인할 수 없어요</strong>
-                  <span>상단 검색창에서 장소를 검색해 위치를 지정해 주세요</span>
+                  <span>장소를 검색하거나 위치 권한을 허용해 주세요</span>
                 </div>
               </>
             ) : (
@@ -122,11 +133,31 @@ export default function EmergencyBottomCard({
                 <div className="v2-empty-spinner"></div>
                 <div className="v2-empty-text">
                   <strong>주변 안전시설을 탐색하고 있습니다...</strong>
-                  <span>반경 3km 내 AED 및 대피소 검색 중</span>
+                  <span>반경 5km 내 AED 및 대피소 검색 중</span>
                 </div>
               </>
             )}
           </div>
+
+          {/* 위치를 못 잡았을 때 바로 할 수 있는 행동 */}
+          {!isLocating && locationError && (
+            <div className="v2-empty-actions">
+              <button
+                type="button"
+                className="v2-btn-empty-primary"
+                onClick={() => document.querySelector('.v2-search-input')?.focus()}
+              >
+                <Search size={16} />
+                <span>장소 검색하기</span>
+              </button>
+              {onRetryLocation && (
+                <button type="button" className="v2-btn-empty-secondary" onClick={onRetryLocation}>
+                  <LocateFixed size={16} />
+                  <span>위치 다시 찾기</span>
+                </button>
+              )}
+            </div>
+          )}
           <div className="v2-quick-action-row">
             <button type="button" className="v2-btn-cpr-hero" onClick={onOpenCpr}>
               <Heart size={18} fill="currentColor" />
@@ -141,7 +172,7 @@ export default function EmergencyBottomCard({
           {/* 🌟 [7] 필수 응급 주의사항 및 데이터 출처 요약 */}
           <div className="v2-card-legal-disclaimer">
             <p className="v2-legal-warning-text">
-              ⚠️ <strong>응급 상황에서는 119 신고가 먼저입니다.</strong>
+              <AlertTriangle size={13} /> <strong>응급 상황에서는 119 신고가 먼저입니다.</strong>
             </p>
             <p className="v2-legal-source-text">
               위치·운영시간은 실제와 다를 수 있습니다. (AED: 국립중앙의료원 / 대피소: 행정안전부 2026.10 기준)
@@ -268,93 +299,110 @@ export default function EmergencyBottomCard({
       </div>
 
       <div className="v2-card-body">
-        {/* 2. 상태 뱃지 & 거리 요약 */}
+        {/* 2. 핵심 상태 1개 + 거리 (한눈에: 무엇인지 / 지금 쓸 수 있는지 / 얼마나 먼지) */}
         <div className="v2-card-top-meta">
           <div className="v2-meta-tags">
             <span className={`v2-tag-cat ${isAed ? 'aed' : 'shelter'}`}>
-              {isAed ? '⚡ AED' : '🏠 대피소'}
+              {isAed ? <Zap size={11} /> : <Shield size={11} />}
+              {isAed ? 'AED' : '대피소'}
             </span>
 
             {isAvailableNow && (
               <span className="v2-tag-status open">
-                <Clock size={11} /> 지금 이용 가능
+                <span className="v2-status-dot" /> 지금 이용 가능
               </span>
             )}
             {isUnavailableNow && (
-              <span className="v2-tag-status closed">🌙 이용 불가 (운영시간 외)</span>
+              <span className="v2-tag-status closed">
+                <span className="v2-status-dot" /> 운영시간 외
+              </span>
             )}
             {isUnknownHours && (
-              <span className="v2-tag-status" style={{ background: '#f1f5f9', color: '#64748b' }}>
-                운영시간 미확인
+              <span className="v2-tag-status unknown">
+                <span className="v2-status-dot" /> 운영시간 미확인
               </span>
             )}
-
-            {isCachedView && (
-              <span className="v2-tag-status" style={{ background: '#f1f5f9', color: '#64748b' }} title="현재 위치 기준 이전 캐시 데이터입니다">
-                이전 결과
-              </span>
-            )}
-
-            {facility.locationConfidence === 'CHECK_NEEDED' && (
-              <span
-                className="v2-tag-status"
-                style={{ background: '#fef3c7', color: '#b45309', border: '1px solid #fde68a' }}
-                title="공공데이터 등록 주소와 지도 좌표 간 차이가 있어 현장 위치 확인이 필요합니다"
-              >
-                위치 확인 필요
-              </span>
-            )}
-
-            {/* 🌟 자체 위치 자동 보정 배지 (상세 위치 및 건물 기준) */}
-            {isCalibrated && (
-              <span
-                className="v2-tag-status calibrated"
-                title={facility.matchedPlaceName ? `${facility.matchedPlaceName} 기준 위치 보정 완료` : '건물 위치 기준 좌표입니다'}
-              >
-                <Sparkles size={11} />{' '}
-                {facility.matchedPlaceName
-                  ? facility.matchedPlaceName.length > 13
-                    ? `${facility.matchedPlaceName.slice(0, 13)}… 보정됨`
-                    : `${facility.matchedPlaceName} 보정됨`
-                  : '위치 자동 보정됨'}
-              </span>
-            )}
-
-            {isGolden && <span className="v2-tag-status golden">골든타임 4분 내</span>}
           </div>
 
           <div className="v2-distance-badge">
-            <span className="v2-dist-val">{dist}m</span>
-            <span className="v2-dist-sub">({timeText})</span>
+            <span className="v2-dist-val">{dist}<small>m</small></span>
+            <span className="v2-dist-sub">도보 {timeText.replace(/^약\s*/, '')}</span>
           </div>
         </div>
 
-        {/* 3. 시설명 & 상세 설치위치 & 운영시간 */}
+        {/* 3. 시설명 & 상세 설치위치 (현장에서 가장 중요한 정보) */}
         <div className="v2-card-title-zone">
           <h2 className="v2-facility-name" title={facility.name}>
             {facility.name}
           </h2>
 
           <div className="v2-facility-place">
-            <Building size={15} className="v2-place-icon" />
+            <Building size={16} className="v2-place-icon" />
             <span className="v2-place-text">
               {facility.buildPlace || facility.buildAddress || '상세 설치 위치 정보 없음'}
             </span>
           </div>
 
-          {/* 간결한 1줄 운영시간 표기 */}
-          {facility.operatingHours && (
-            <div className={`v2-facility-hours ${isAvailableNow ? 'open' : (isUnavailableNow ? 'closed' : '')}`}>
-              <Clock size={12} className="v2-hours-icon" />
-              <span>{facility.operatingHours}</span>
+          {/* 운영시간·주소는 보조 정보로 한 단계 낮춰 표시 */}
+          <div className="v2-facility-sub-info">
+            {facility.operatingHours && (
+              <div className="v2-facility-sub-row">
+                <Clock size={13} />
+                <span>{facility.operatingHours}</span>
+              </div>
+            )}
+            {facility.buildAddress && (
+              <div className="v2-facility-sub-row">
+                <MapPin size={13} />
+                <span>{facility.buildAddress}</span>
+              </div>
+            )}
+          </div>
+
+          {/* 위치 보정·주의 등 부가 정보는 작은 한 줄로 */}
+          {(isCalibrated || facility.locationConfidence === 'CHECK_NEEDED' || isCachedView || isGolden) && (
+            <div className="v2-facility-notes">
+              {isGolden && <span className="v2-note golden">골든타임 4분 이내</span>}
+              {facility.locationConfidence === 'CHECK_NEEDED' && (
+                <span
+                  className="v2-note warn"
+                  title="공공데이터 등록 주소와 지도 좌표 간 차이가 있어 현장 위치 확인이 필요합니다"
+                >
+                  <AlertTriangle size={11} /> 위치 확인 필요
+                </span>
+              )}
+              {isCalibrated && (
+                <span
+                  className="v2-note"
+                  title={facility.matchedPlaceName ? `${facility.matchedPlaceName} 기준 위치 보정 완료` : '건물 위치 기준 좌표입니다'}
+                >
+                  <Sparkles size={11} /> {facility.matchedPlaceName ? `${facility.matchedPlaceName} 기준 보정` : '위치 보정됨'}
+                </span>
+              )}
+              {isCachedView && (
+                <span className="v2-note" title="현재 위치 기준 이전 캐시 데이터입니다">이전 검색 결과</span>
+              )}
             </div>
           )}
 
-          {facility.buildAddress && (
-            <div className="v2-facility-address">
-              <MapPin size={13} className="v2-addr-icon" />
-              <span>{facility.buildAddress}</span>
-            </div>
+          {/* 🌟 이 AED가 지금 이용 불가·미확인일 때, 지금 열려 있는 가장 가까운 AED로 바로 전환 */}
+          {openAedAlternative && (
+            <button
+              type="button"
+              className="v2-open-alt-row"
+              onClick={() => onSelectFacility?.(openAedAlternative)}
+              title="지금 이용 가능한 AED로 전환"
+            >
+              <CheckCircle2 size={18} className="v2-open-alt-icon" />
+              <span className="v2-open-alt-text">
+                <small>지금 이용 가능한 AED</small>
+                <strong>{openAedAlternative.name}</strong>
+              </span>
+              <span className="v2-open-alt-dist">
+                {openAedAlternative.realDistanceMeters || openAedAlternative.distanceMeters}m
+                <ChevronRight size={15} />
+              </span>
+            </button>
           )}
         </div>
 
@@ -428,7 +476,7 @@ export default function EmergencyBottomCard({
         {/* 🌟 [7] 필수 응급 주의사항 및 데이터 출처 요약 */}
         <div className="v2-card-legal-disclaimer">
           <p className="v2-legal-warning-text">
-            ⚠️ <strong>응급 상황에서는 119 신고가 먼저입니다.</strong>
+            <AlertTriangle size={13} /> <strong>응급 상황에서는 119 신고가 먼저입니다.</strong>
           </p>
           <p className="v2-legal-source-text">
             위치·운영시간은 실제와 다를 수 있습니다. (AED: 국립중앙의료원 / 대피소: 행정안전부 2026.10 기준)
@@ -483,13 +531,10 @@ export default function EmergencyBottomCard({
                           </span>
                           <span className="v2-item-rank">{idx + 1}위</span>
                           <span className="v2-item-name">{fac.name}</span>
-                          {isItemOpen ? (
-                            <span className="v2-item-open-dot" title="지금 이용 가능">🟢</span>
-                          ) : isItemClosed ? (
-                            <span className="v2-item-closed-dot" title="야간/휴무 운영시간 외">🌙</span>
-                          ) : (
-                            <span className="v2-item-closed-dot" title="운영시간 미확인">⚪</span>
-                          )}
+                          <span
+                            className={`v2-status-dot ${isItemOpen ? 'open' : isItemClosed ? 'closed' : 'unknown'}`}
+                            title={isItemOpen ? '지금 이용 가능' : isItemClosed ? '운영시간 외' : '운영시간 미확인'}
+                          />
                         </div>
 
                         <div className="v2-item-place-row">

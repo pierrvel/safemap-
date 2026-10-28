@@ -1,5 +1,5 @@
 // 🫀 골든러너 119 PWA 서비스 워커 (Service Worker)
-const CACHE_NAME = 'goldenrunner-pwa-v2';
+const CACHE_NAME = 'goldenrunner-pwa-v3';
 const STATIC_ASSETS = [
   '/',
   '/manifest.json',
@@ -35,11 +35,18 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
   // API 요청은 항상 최신 실시간 데이터 네트워크 우선 조회
+  // 성공한 GET 응답은 캐시에 보관하여 네트워크 장애 시 마지막 결과로 폴백
   if (url.pathname.startsWith('/api/')) {
     event.respondWith(
-      fetch(event.request).catch(() => {
-        return caches.match(event.request);
-      })
+      fetch(event.request)
+        .then((response) => {
+          if (event.request.method === 'GET' && response && response.ok) {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+          }
+          return response;
+        })
+        .catch(() => caches.match(event.request))
     );
     return;
   }

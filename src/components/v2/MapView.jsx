@@ -53,6 +53,16 @@ export default function MapView({
   const routePolylineRef = useRef(null);
   const isInitialCenteringDone = useRef(false);
 
+  // 재사용되는 마커의 클릭 핸들러가 생성 시점의 오래된 시설 데이터·함수를 쓰지 않도록 최신값을 ref로 보관
+  const latestFacilitiesRef = useRef(new Map());
+  latestFacilitiesRef.current = new Map(facilities.map((f) => [f.id, f]));
+  const onSelectFacilityRef = useRef(onSelectFacility);
+  onSelectFacilityRef.current = onSelectFacility;
+  const selectLatest = useCallback((fac) => {
+    onSelectFacilityRef.current?.(latestFacilitiesRef.current.get(fac.id) || fac);
+  }, []);
+  const getLatestGroup = (group) => group.map((f) => latestFacilitiesRef.current.get(f.id) || f);
+
   // 🌟 [3] 펼쳐진 스파이더파이 핀 및 점선 정리
   const collapseSpider = useCallback(() => {
     spiderMarkersRef.current.forEach((m) => m.setMap(null));
@@ -175,7 +185,7 @@ export default function MapView({
       spMarker.item = item;
 
       window.kakao.maps.event.addListener(spMarker, 'click', () => {
-        onSelectFacility(item);
+        selectLatest(item);
         // 펼쳐진 모든 자식 마커의 선택 상태 즉각 갱신
         spiderMarkersRef.current.forEach((m) => {
           if (!m || !m.item) return;
@@ -188,7 +198,9 @@ export default function MapView({
 
       spiderMarkersRef.current.push(spMarker);
     });
-  }, [collapseSpider, facilities, selectedFacility, onSelectFacility]);
+  }, [collapseSpider, facilities, selectedFacility, selectLatest]);
+  const expandSpiderRef = useRef(expandSpider);
+  expandSpiderRef.current = expandSpider;
 
   // 3. 시설 마커 렌더링 (마커 재사용 풀링 & 겹침 마커 스파이더파이어)
   useEffect(() => {
@@ -226,7 +238,7 @@ export default function MapView({
 
           window.kakao.maps.event.addListener(marker, 'click', () => {
             collapseSpider();
-            onSelectFacility(fac);
+            selectLatest(fac);
             if (mapRef.current) {
               mapRef.current.panTo(pos);
             }
@@ -265,7 +277,7 @@ export default function MapView({
           });
 
           window.kakao.maps.event.addListener(marker, 'click', () => {
-            expandSpider(group, centerPos, clusterKey);
+            expandSpiderRef.current(getLatestGroup(group), centerPos, clusterKey);
           });
 
           currentMap.set(clusterKey, {
@@ -287,7 +299,7 @@ export default function MapView({
         currentMap.delete(key);
       }
     }
-  }, [facilities, selectedFacility, onSelectFacility, collapseSpider, expandSpider]);
+  }, [facilities, selectedFacility, collapseSpider, selectLatest]);
 
   // 4. 도보 내비게이션 경로선 (Polyline) 렌더링 (배열 및 객체 좌표 완벽 파싱)
   useEffect(() => {
@@ -361,8 +373,11 @@ export default function MapView({
 
   const handleSnapGps = () => {
     if (!mapRef.current) return;
-    const pos = new window.kakao.maps.LatLng(userCoords.lat, userCoords.lon);
-    mapRef.current.panTo(pos);
+    // 위치 권한 거부 등으로 좌표가 없으면 지도 이동 없이 위치 재요청만 수행
+    if (userCoords?.lat && userCoords?.lon) {
+      const pos = new window.kakao.maps.LatLng(userCoords.lat, userCoords.lon);
+      mapRef.current.panTo(pos);
+    }
     onRequestGps?.();
   };
 

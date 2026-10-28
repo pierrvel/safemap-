@@ -55,6 +55,8 @@ export default function App() {
   const [isNavigating, setIsNavigating] = useState(false);
   const [navTarget, setNavTarget] = useState(null);
   const [navData, setNavData] = useState(null);
+  // 길안내 중 실시간 이동 위치 (시설 재검색을 일으키지 않도록 coords와 분리)
+  const [navPosition, setNavPosition] = useState(null);
 
   // 모달 및 토스트 상태
   const [showCprModal, setShowCprModal] = useState(false);
@@ -175,8 +177,13 @@ export default function App() {
         if (cached?.coords?.lat && cached?.coords?.lon && cached?.facilities?.length > 0) {
           const dist = getDistanceMeters(coords.lat, coords.lon, cached.coords.lat, cached.coords.lon);
           if (dist <= 200) {
-            setFacilities(cached.facilities);
-            setSelectedFacility(cached.facilities[0]);
+            // 저장 시점의 개방 여부는 지금과 다를 수 있으므로 5분이 지났으면 '운영시간 미확인'으로 표시
+            const isStale = !cached.timestamp || Date.now() - cached.timestamp > 5 * 60 * 1000;
+            const list = isStale
+              ? cached.facilities.map((f) => (f.available24h ? f : { ...f, availableNow: null }))
+              : cached.facilities;
+            setFacilities(list);
+            setSelectedFacility(list[0]);
             setIsCachedView(true);
           }
         }
@@ -291,6 +298,17 @@ export default function App() {
     return facilities.filter((f) => f.availableNow === true);
   }, [facilities, openOnly]);
 
+  // 🌟 선택 시설이 지금 이용 가능하지 않은 AED일 때, 지금 확실히 열려 있는 가장 가까운 AED를 대안으로 제시
+  const openAedAlternative = useMemo(() => {
+    const active = selectedFacility || displayedFacilities[0];
+    if (!active || active.category !== 'aed' || active.availableNow === true) return null;
+    return (
+      facilities
+        .filter((f) => f.category === 'aed' && f.availableNow === true && f.id !== active.id)
+        .sort((a, b) => a.distanceMeters - b.distanceMeters)[0] || null
+    );
+  }, [facilities, selectedFacility, displayedFacilities]);
+
   // 카운트 계산
   const counts = useMemo(() => {
     const aeds = facilities.filter((f) => f.category === 'aed');
@@ -358,14 +376,17 @@ export default function App() {
     if (res.success) {
       setNavData(res);
     } else {
-      // 직선 경로 폴백
+      // 직선 경로 폴백 (서버 응답과 같은 필드 구조 사용)
+      const estDist = Math.round(targetFacility.distanceMeters * 1.25);
       setNavData({
+        isRealRoad: false,
         coordinates: [
-          [coords.lon, coords.lat],
-          [targetFacility.lon, targetFacility.lat],
+          { lat: coords.lat, lng: coords.lon },
+          { lat: targetFacility.lat, lng: targetFacility.lon },
         ],
-        totalDistanceMeters: targetFacility.distanceMeters,
-        durationMinutes: Math.max(1, Math.round(targetFacility.distanceMeters / 75)),
+        distanceMeters: estDist,
+        durationSeconds: Math.round(estDist / 1.25),
+        steps: [],
       });
     }
   };
@@ -374,8 +395,20 @@ export default function App() {
     setIsNavigating(false);
     setNavTarget(null);
     setNavData(null);
+    setNavPosition(null);
     showToast('길안내를 종료했습니다.');
   };
+
+  // 🌟 길안내 중 실시간 위치 추적 (이동에 따라 남은 거리·다음 안내 갱신)
+  useEffect(() => {
+    if (!isNavigating || !navigator.geolocation) return;
+    const watchId = navigator.geolocation.watchPosition(
+      (pos) => setNavPosition({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
+      (err) => console.warn('Navigation watch error:', err.message),
+      { enableHighAccuracy: true, maximumAge: 2000, timeout: 15000 }
+    );
+    return () => navigator.geolocation.clearWatch(watchId);
+  }, [isNavigating]);
 
   // 🌟 핵심: 지도를 드래그했을 때 '내 위치'는 건드리지 않고 카메라 중심만 기록
   const handleCameraMove = useCallback((newCenter) => {
@@ -400,7 +433,7 @@ export default function App() {
       {/* 1. 전체 화면 지도 */}
       <MapView
         isLoaded={isKakaoLoaded}
-        userCoords={coords}
+        userCoords={(isNavigating && navPosition) || coords}
         facilities={displayedFacilities}
         selectedFacility={activeFacility}
         onSelectFacility={(fac) => setSelectedFacility(fac)}
@@ -457,10 +490,12 @@ export default function App() {
           onOpenCpr={() => setShowCprModal(true)}
           onOpenAudit={() => setShowAuditModal(true)}
           onSelectFacility={(fac) => setSelectedFacility(fac)}
+          openAedAlternative={openAedAlternative}
           isExpanded={isCardExpanded}
           onToggleExpand={() => setIsCardExpanded((prev) => !prev)}
           isLocating={isLocating}
           locationError={locationError}
+          onRetryLocation={() => requestGps(true)}
           isCachedView={isCachedView}
         />
       )}
@@ -470,6 +505,7 @@ export default function App() {
         <NavigationHUD
           navData={navData}
           destination={navTarget}
+          currentPosition={navPosition}
           onClose={handleCloseNavigation}
         />
       )}

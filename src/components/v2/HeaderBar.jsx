@@ -94,7 +94,7 @@ export default function HeaderBar({
         >
           <Clock size={13} className="v2-chip-icon" />
           <span>지금 이용 가능</span>
-          <span className="v2-chip-count green">{counts.openAeds || counts.aed || 0}</span>
+          <span className="v2-chip-count green">{counts.openAeds ?? 0}</span>
         </button>
 
         <button

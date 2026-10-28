@@ -154,8 +154,13 @@ app.get(['/api/config', '/config'], (req, res) => {
   });
 });
 
+// 사용자 제보·점검 데이터 저장 경로
+// Vercel 서버리스는 배포 디렉터리가 읽기 전용이므로 임시 디렉터리에 기록 (인스턴스 재시작 시 초기화됨)
+const DATA_WRITE_DIR = process.env.VERCEL ? require('os').tmpdir() : __dirname;
+
 // 사용자 제보 데이터 저장소 (인메모리 + 파일)
-const REPORTS_FILE = path.join(__dirname, 'reports.json');
+// ※ 제보 기능은 정식 서비스 전이므로 시설 추천·필터 판단에는 반영하지 않음 (무인증 허위 제보로 정상 AED가 밀려나는 것 방지)
+const REPORTS_FILE = path.join(DATA_WRITE_DIR, 'reports.json');
 let userReports = [];
 if (fs.existsSync(REPORTS_FILE)) {
   try {
@@ -174,7 +179,7 @@ function saveReports() {
 }
 
 // 원터치 시설 점검 및 확인(Micro Check-in) 데이터 저장소
-const CHECKINS_FILE = path.join(__dirname, 'checkins.json');
+const CHECKINS_FILE = path.join(DATA_WRITE_DIR, 'checkins.json');
 let facilityCheckins = {};
 if (fs.existsSync(CHECKINS_FILE)) {
   try {
@@ -219,7 +224,7 @@ function getWalkingTimeText(distanceMeters) {
 function getKstNow() {
   const formatter = new Intl.DateTimeFormat('en-US', {
     timeZone: 'Asia/Seoul',
-    hour12: false,
+    hourCycle: 'h23', // 자정을 '24시'가 아닌 '00시'로 표기
     weekday: 'short',
     hour: 'numeric',
     minute: 'numeric',
@@ -345,19 +350,30 @@ function calculateAedOperatingInfo(item) {
 
   // 5. 현재 KST 시각 기준 개방 여부 판정
   const { day, currentTimeInt } = getKstNow();
+
+  const weekWindows = [
+    [sunStt, sunEnd], [monStt, monEnd], [tueStt, tueEnd], [wedStt, wedEnd],
+    [thuStt, thuEnd], [friStt, friEnd], [satStt, satEnd],
+  ];
+  // 해당 요일 운영시간 (평일인데 시간이 없으면 월요일 시간 준용, 주말 미기재는 미운영)
+  const getDayWindow = (d) => {
+    const [s, e] = weekWindows[d];
+    if (s !== null && e !== null) return [s, e];
+    if (d >= 1 && d <= 5 && monStt !== null && monEnd !== null) return [monStt, monEnd];
+    return null;
+  };
+
   let availableNow = false;
-
-  const dayStt = [sunStt, monStt, tueStt, wedStt, thuStt, friStt, satStt][day];
-  const dayEnd = [sunEnd, monEnd, tueEnd, wedEnd, thuEnd, friEnd, satEnd][day];
-
-  if (dayStt !== null && dayEnd !== null) {
-    availableNow = currentTimeInt >= dayStt && currentTimeInt <= dayEnd;
-  } else if (day >= 1 && day <= 5 && monStt !== null && monEnd !== null) {
-    // 평일이고 해당 요일 시간 없으면 월요일 시간 준용
-    availableNow = currentTimeInt >= monStt && currentTimeInt <= monEnd;
-  } else {
-    // 주말인데 시간이 없거나 일요일 미운영인 경우 이용 불가
-    availableNow = false;
+  const today = getDayWindow(day);
+  if (today) {
+    const [s, e] = today;
+    // 자정을 넘기는 야간 운영(예: 18:00~09:00)은 오늘 시작 시각 이후를 개방으로 판정
+    availableNow = s <= e ? currentTimeInt >= s && currentTimeInt <= e : currentTimeInt >= s;
+  }
+  // 전날 야간 운영이 오늘 새벽까지 이어지는 경우
+  const yesterday = getDayWindow((day + 6) % 7);
+  if (!availableNow && yesterday && yesterday[0] > yesterday[1] && currentTimeInt <= yesterday[1]) {
+    availableNow = true;
   }
 
   return {
@@ -370,6 +386,29 @@ function calculateAedOperatingInfo(item) {
 // 인메모리 지오코딩 캐시 (동일 주소/기관명 반복 조회 방지 및 초고속 0ms 응답 보장)
 const aedGeocodeCache = new Map();
 const regionCache = new Map();
+const MAX_GEO_CACHE_SIZE = 5000;
+
+// 캐시 크기 상한 (가장 오래된 항목부터 제거하여 메모리 누수 방지)
+function setBoundedCache(cache, key, value) {
+  if (cache.size >= MAX_GEO_CACHE_SIZE) {
+    cache.delete(cache.keys().next().value);
+  }
+  cache.set(key, value);
+}
+
+// 동시 실행 수를 제한한 비동기 map (카카오 API 동시 호출 폭주 방지)
+async function mapWithConcurrency(items, limit, fn) {
+  const results = new Array(items.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) {
+      const idx = next++;
+      results[idx] = await fn(items[idx], idx);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
 
 // 🌟 위경도 기준 광역 행정구역(시·도 / 시·군·구 / 읍·면·동) 조회 및 캐싱
 async function getRegionInfo(lat, lon) {
@@ -400,13 +439,13 @@ async function getRegionInfo(lat, lon) {
           sigungu: doc.region_2depth_name,
           dong: doc.region_3depth_name,
         };
-        regionCache.set(gridKey, info);
+        setBoundedCache(regionCache, gridKey, info);
         return info;
       }
     }
   } catch (e) {}
 
-  regionCache.set(gridKey, null);
+  setBoundedCache(regionCache, gridKey, null);
   return null;
 }
 
@@ -492,66 +531,79 @@ async function geocodeAddress(address, orgName = '', centerLat = null, centerLon
   };
 
   const cleanAddr = (address || '').split(',')[0].replace(/\([^\)]*\)/g, '').trim();
+  const addrSido = parseAddrRegion(cleanAddr)?.sido || '';
+  const addrKeys = extractAddressKeys(cleanAddr);
+
+  // 지오코딩 결과의 시·도가 원본 주소의 시·도와 다르면 동명 주소 오매칭으로 간주
+  const isSameSido = (docAddr) => {
+    if (!addrSido || !docAddr) return true;
+    return normalizeSido(docAddr.trim().split(/\s+/)[0]) === addrSido;
+  };
 
   try {
-    // 1. 주요 랜드마크/기관명 키워드 검색 (위치 반경 제한 및 정확한 단어 경계 검사)
+    // 1. 주요 랜드마크/기관명 키워드 검색
+    // 도로명+건물번호 또는 동+지번이 원본 주소와 정확히 일치하는 결과만 같은 건물로 인정
     const isSignificantPlace = /(?:초등학교|중학교|고등학교|대학교|병원|보건소|도서관|주민센터|구청|시청|경찰서|소방서|복지관|수련관|체육센터|문화센터|아파트|타워|[가-힣0-9]+역\b)/.test(orgName);
-    if (orgName && isSignificantPlace) {
+    if (orgName && isSignificantPlace && (addrKeys.road || addrKeys.jibun)) {
       let kwUrl = `https://dapi.kakao.com/v2/local/search/keyword.json?query=${encodeURIComponent(orgName)}`;
       if (centerLat && centerLon) {
-        kwUrl += `&y=${centerLat}&x=${centerLon}&radius=3000`; // 3km 반경 내로 검색 범위 엄격 제한 (타도시 동명 시설 오매칭 방지)
+        kwUrl += `&y=${centerLat}&x=${centerLon}&radius=3000`;
       }
       const kwRes = await fetch(kwUrl, { headers });
       if (kwRes.ok) {
         const kwData = await kwRes.json();
-        if (kwData.documents && kwData.documents.length > 0) {
-          const matched = kwData.documents.find(d => {
-            const addr = d.road_address_name || d.address_name || '';
-            const tokens = addr.split(' ').filter(t => t.length >= 2);
-            return tokens.length > 0 && tokens.some(t => cleanAddr.includes(t));
-          }) || (centerLat && centerLon ? kwData.documents[0] : null);
+        const matched = (kwData.documents || []).find((d) => {
+          if (!isSameSido(d.road_address_name || d.address_name)) return false;
+          const docKeys = [
+            extractAddressKeys(d.road_address_name).road,
+            extractAddressKeys(d.address_name).jibun,
+          ];
+          return (addrKeys.road && docKeys[0] === addrKeys.road) || (addrKeys.jibun && docKeys[1] === addrKeys.jibun);
+        });
 
-          if (matched) {
-            const res = {
-              lat: parseFloat(matched.y),
-              lon: parseFloat(matched.x),
-              source: 'KAKAO_KEYWORD',
-              matchedName: matched.place_name,
-              matchedAddr: matched.road_address_name || matched.address_name,
-            };
-            aedGeocodeCache.set(cacheKey, res);
-            return res;
-          }
+        if (matched) {
+          const res = {
+            lat: parseFloat(matched.y),
+            lon: parseFloat(matched.x),
+            source: 'KAKAO_KEYWORD',
+            precision: 'EXACT',
+            matchedName: matched.place_name,
+            matchedAddr: matched.road_address_name || matched.address_name,
+          };
+          setBoundedCache(aedGeocodeCache, cacheKey, res);
+          return res;
         }
       }
     }
 
-    // 2. 도로명/지번 정밀 주소 지오코딩 검색 (점진적 폴백: 전체 도로명 -> 건물번호 제외 도로명 -> 읍면동)
+    // 2. 도로명/지번 주소 지오코딩 (점진적 폴백: 전체 주소 -> 건물번호 제외 도로명 -> 읍면동)
+    // precision: EXACT(건물 단위) / ROAD(도로 단위) / DONG(읍면동 중심점)
     if (cleanAddr) {
-      const candidates = [cleanAddr];
+      const candidates = [{ query: cleanAddr, precision: 'EXACT' }];
       const withoutBno = cleanAddr.replace(/\s+\d+(?:-\d+)?$/, '').trim();
       if (withoutBno && withoutBno !== cleanAddr) {
-        candidates.push(withoutBno);
+        candidates.push({ query: withoutBno, precision: 'ROAD' });
       }
       const dongMatch = cleanAddr.match(/^(?:[가-힣]+(?:시|도)\s+)?(?:[가-힣]+(?:시|군|구)\s+)?(?:[가-힣0-9]+(?:읍|면|동|가))/);
-      if (dongMatch && !candidates.includes(dongMatch[0])) {
-        candidates.push(dongMatch[0]);
+      if (dongMatch && !candidates.some((c) => c.query === dongMatch[0])) {
+        candidates.push({ query: dongMatch[0], precision: 'DONG' });
       }
 
-      for (const query of candidates) {
+      for (const { query, precision } of candidates) {
         const addrUrl = `https://dapi.kakao.com/v2/local/search/address.json?query=${encodeURIComponent(query)}`;
         const addrRes = await fetch(addrUrl, { headers });
         if (addrRes.ok) {
           const addrData = await addrRes.json();
-          if (addrData.documents && addrData.documents.length > 0) {
-            const doc = addrData.documents[0];
+          const doc = (addrData.documents || []).find((d) => isSameSido(d.address_name));
+          if (doc) {
             const res = {
               lat: parseFloat(doc.y),
               lon: parseFloat(doc.x),
               source: 'KAKAO_ADDRESS',
+              precision,
               matchedAddr: doc.address_name,
             };
-            aedGeocodeCache.set(cacheKey, res);
+            setBoundedCache(aedGeocodeCache, cacheKey, res);
             return res;
           }
         }
@@ -561,8 +613,19 @@ async function geocodeAddress(address, orgName = '', centerLat = null, centerLon
     // 지오코딩 실패 시 안전하게 null 반환
   }
 
-  aedGeocodeCache.set(cacheKey, null);
+  setBoundedCache(aedGeocodeCache, cacheKey, null);
   return null;
+}
+
+// 주소에서 "도로명 건물번호"와 "동/리 지번" 비교 키 추출 (예: "올림픽로 300", "잠실동 40-1")
+function extractAddressKeys(addr) {
+  if (!addr) return { road: null, jibun: null };
+  const road = addr.match(/([가-힣0-9.]+(?:로|길))\s*(\d+(?:-\d+)?)/);
+  const jibun = addr.match(/([가-힣0-9]+(?:동|리|가))\s+(?:산\s*)?(\d+(?:-\d+)?)/);
+  return {
+    road: road ? `${road[1]} ${road[2]}` : null,
+    jibun: jibun ? `${jibun[1]} ${jibun[2]}` : null,
+  };
 }
 
 // 🌟 상세위치(buildPlace)에서 관리사무소, 동, 별관 등 독립 건물 키워드 추출
@@ -666,13 +729,13 @@ async function geocodeSubLocation(orgName, buildPlace, baseLat, baseLon) {
           subKeyword,
           source: 'KAKAO_SUB_LOCATION',
         };
-        aedGeocodeCache.set(cacheKey, result);
+        setBoundedCache(aedGeocodeCache, cacheKey, result);
         return result;
       }
     }
   } catch (err) {}
 
-  aedGeocodeCache.set(cacheKey, null);
+  setBoundedCache(aedGeocodeCache, cacheKey, null);
   return null;
 }
 
@@ -758,7 +821,6 @@ function getNearbyShelters(centerLat, centerLon, maxRadiusMeters = 5000) {
     if (dist <= maxRadiusMeters) {
       const facilityId = s.id;
       const reports = userReports.filter(r => r.facilityId === facilityId);
-      const hasIssueReport = reports.length > 0;
 
       // 🌟 [6] 수용인원과 면적 중복 문제: 불확실한 수용인원 추정치 대신 행안부 등록 면적(㎡)을 우선 표시
       const areaText = s.area > 0 ? `대피 면적 ${s.area.toLocaleString()}㎡` : '면적 정보 미제공';
@@ -787,7 +849,7 @@ function getNearbyShelters(centerLat, centerLon, maxRadiusMeters = 5000) {
         reportsCount: reports.length,
         reports,
         checkin: facilityCheckins[facilityId] || null,
-        verified: !hasIssueReport,
+        verified: true,
       });
     }
   }
@@ -803,8 +865,12 @@ const FACILITY_CACHE_TTL_MS = 60 * 1000; // 60초 캐시
 // 메인 시설 목록 API (전처리 및 최단거리 분석 적용)
 app.get(['/api/facilities', '/facilities'], async (req, res) => {
   try {
-    const lat = parseFloat(req.query.lat) || 37.5665;
-    const lon = parseFloat(req.query.lon || req.query.lng) || 126.9780;
+    // 임의 기본 좌표(서울시청)로 대체하지 않고, 위치가 없으면 요청을 거부
+    const lat = parseFloat(req.query.lat);
+    const lon = parseFloat(req.query.lon || req.query.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon) || lat < 33 || lat > 39 || lon < 124 || lon > 132) {
+      return res.status(400).json({ success: false, message: '유효한 위치(lat, lon)가 필요합니다.' });
+    }
     const categoryFilter = req.query.category || 'all'; // all, aed, extinguisher, hydrant
     const verifiedOnly = req.query.verifiedOnly === 'true'; // 즉시 사용 가능한 장비만 필터링
 
@@ -817,6 +883,7 @@ app.get(['/api/facilities', '/facilities'], async (req, res) => {
           const dist = calculateDistanceMeters(lat, lon, f.lat, f.lon);
           return {
             ...f,
+            isNearest: false,
             distanceMeters: dist,
             walkingTime: getWalkingTimeText(dist),
           };
@@ -859,8 +926,8 @@ app.get(['/api/facilities', '/facilities'], async (req, res) => {
         const rawAeds = await fetchAEDData(lat, lon);
         stats.totalCollected += rawAeds.length;
 
-        const aedFacilities = await Promise.all(
-          rawAeds.map(async (raw) => {
+        // 시설당 카카오 API를 여러 번 호출하므로 동시 처리 수를 제한
+        const aedFacilities = await mapWithConcurrency(rawAeds, 8, async (raw) => {
             const itemLat = parseFloat(raw.wgs84Lat);
             const itemLon = parseFloat(raw.wgs84Lon);
 
@@ -871,12 +938,10 @@ app.get(['/api/facilities', '/facilities'], async (req, res) => {
             }
 
             // 🌟 [행정구역 광역 교차 검증]
-            // 공공데이터 원천 좌표 오류로 인해 타 광역지역(예: 경기도 여주시 시설이 서울 마포구 양화로로 등록됨)의
-            // 데이터가 검색 좌표에 잘못 걸려든 경우를 원천 차단
-            if (centerRegion && isRegionalConflict(raw.buildAddress, centerRegion.sido, centerRegion.sigungu)) {
-              stats.invalidCoordsRemoved++;
-              return null;
-            }
+            // 주소의 시·도가 검색 위치와 다르면 원천 좌표 오염 의심 (예: 경기도 여주시 시설이 서울 마포구 양화로로 등록됨)
+            // 단, 시·도 경계 인근(대전-세종, 부산-양산 등)의 정상 시설일 수 있으므로 바로 제외하지 않고
+            // 아래에서 텍스트 주소 지오코딩으로 실제 위치를 검증한 뒤 반경 필터로 판단
+            const regionConflict = !!(centerRegion && isRegionalConflict(raw.buildAddress, centerRegion.sido, centerRegion.sigungu));
 
             // 🌟 [5] 단일 통합 함수로 운영시간 요약, 24시간 여부, 현재 개방 여부 동시 산출 (모순 원천 제거)
             const opInfo = calculateAedOperatingInfo(raw);
@@ -899,10 +964,9 @@ app.get(['/api/facilities', '/facilities'], async (req, res) => {
 
             // 즉시 가용 필터(verifiedOnly) 적용 시:
             // 🌟 [8-1] 비공식적/근거없는 '노후' 판정 제거 - 가용 상태(availableNow)만 고려
-            if (verifiedOnly) {
-              if (availableNow === false) {
-                stats.unavailableHoursFiltered++;
-              }
+            if (verifiedOnly && availableNow === false) {
+              stats.unavailableHoursFiltered++;
+              return null;
             }
 
             // 🌟 [정밀 위치 보정] 1단계: 상세위치(관리사무소, ○○동, 별관 등) 안전 보정 시도
@@ -913,8 +977,9 @@ app.get(['/api/facilities', '/facilities'], async (req, res) => {
             let matchedPlaceName = null;
             let calibrationType = null;
 
+            // 원천 좌표 오염이 의심되는 시설은 원본 좌표 주변 세부위치 보정을 건너뜀
             let subGeocoded = null;
-            if (raw.org && raw.buildPlace) {
+            if (!regionConflict && raw.org && raw.buildPlace) {
               subGeocoded = await geocodeSubLocation(raw.org, raw.buildPlace, itemLat, itemLon);
             }
 
@@ -927,13 +992,15 @@ app.get(['/api/facilities', '/facilities'], async (req, res) => {
               calibrationOffsetMeters = calculateDistanceMeters(itemLat, itemLon, finalLat, finalLon);
             } else if (raw.buildAddress || raw.org) {
               // 2단계: 일반 도로명/건물 지오코딩 보정
-              const geocoded = await geocodeAddress(raw.buildAddress, raw.org, itemLat, itemLon);
+              // 오염 의심 시설은 원본 좌표 주변 키워드 검색 없이 텍스트 주소만으로 검증
+              const geocoded = await geocodeAddress(raw.buildAddress, regionConflict ? '' : raw.org, itemLat, itemLon);
               if (geocoded && !isNaN(geocoded.lat) && !isNaN(geocoded.lon)) {
                 const diffMeters = calculateDistanceMeters(itemLat, itemLon, geocoded.lat, geocoded.lon);
                 calibrationOffsetMeters = diffMeters;
 
-                // 70m 이상 편차 발생 시 공공데이터의 지번/필지 오차로 판별하여 도로명/건물 정밀좌표로 보정
-                if (diffMeters >= 70 && diffMeters < 5000) {
+                // 70m 이상 편차 시 지번/필지 오차로 판별하여 건물 좌표로 보정
+                // (건물 단위로 정확히 일치한 결과만 사용: 도로·읍면동 중심점으로 원본 좌표를 덮어쓰지 않음)
+                if (diffMeters >= 70 && diffMeters < 5000 && geocoded.precision === 'EXACT') {
                   finalLat = geocoded.lat;
                   finalLon = geocoded.lon;
                   locationConfidence = 'CALIBRATED';
@@ -941,14 +1008,22 @@ app.get(['/api/facilities', '/facilities'], async (req, res) => {
                   calibrationType = 'BUILDING';
                 } else if (diffMeters >= 5000) {
                   // 🌟 공공데이터 원천 데이터의 좌표 오기재/오염 복원:
-                  // 텍스트 주소 지오코딩 결과로 좌표를 정상 복원하고, 이후 반경 검증에서 정상 필터링되도록 처리
+                  // 텍스트 주소 지오코딩 결과로 좌표를 복원하고, 이후 반경 검증에서 정상 필터링되도록 처리
+                  // 건물 단위가 아닌 도로·읍면동 단위 복원은 근사 위치이므로 '위치 확인 필요'로 표시
                   finalLat = geocoded.lat;
                   finalLon = geocoded.lon;
-                  locationConfidence = 'CALIBRATED';
+                  locationConfidence = geocoded.precision === 'EXACT' ? 'CALIBRATED' : 'CHECK_NEEDED';
                   matchedPlaceName = geocoded.matchedName || geocoded.matchedAddr;
                   calibrationType = 'OUTLIER_RESTORED';
                 }
+              } else if (regionConflict) {
+                // 오염 의심인데 주소로 실제 위치를 검증할 수 없으면 제외
+                stats.invalidCoordsRemoved++;
+                return null;
               }
+            } else if (regionConflict) {
+              stats.invalidCoordsRemoved++;
+              return null;
             }
 
             const distMeters = calculateDistanceMeters(lat, lon, finalLat, finalLon);
@@ -982,7 +1057,7 @@ app.get(['/api/facilities', '/facilities'], async (req, res) => {
               walkingTime: getWalkingTimeText(distMeters),
               model: raw.model || '표준 모델',
               mfg: raw.mfg || '제조사 정보 없음',
-              clerkTel: raw.clerkTel || raw.managerTel || '119',
+              clerkTel: raw.clerkTel || raw.managerTel || null,
               availableNow,
               operatingHours,
               unconfirmedReportCount,
@@ -991,8 +1066,7 @@ app.get(['/api/facilities', '/facilities'], async (req, res) => {
               checkin: facilityCheckins[facilityId] || null,
               verified: availableNow === true,
             };
-          })
-        );
+        });
 
         for (const item of aedFacilities) {
           if (item) allFacilities.push(item);
@@ -1025,9 +1099,9 @@ app.get(['/api/facilities', '/facilities'], async (req, res) => {
       allFacilities[0].isNearest = true;
 
       const first = allFacilities[0];
-      // 1순위 시설이 야간 미개방이거나 고장 제보가 있는 경우 24시간 상시 가용 시설을 대안으로 제공
-      if (!first.availableNow || first.reportsCount > 0) {
-        backup24h = allFacilities.slice(1).find(f => f.availableNow && f.available24h && f.reportsCount === 0) || null;
+      // 1순위 시설이 지금 이용 가능하지 않은 경우 24시간 상시 가용 시설을 대안으로 제공
+      if (first.availableNow !== true) {
+        backup24h = allFacilities.slice(1).find(f => f.availableNow === true && f.available24h) || null;
       }
     }
 
