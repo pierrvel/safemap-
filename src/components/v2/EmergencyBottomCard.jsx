@@ -89,6 +89,9 @@ export default function EmergencyBottomCard({
             <span className="v2-min-dist">
               {dist}m <small>({timeText})</small>
             </span>
+            {facility.operatingHours && (
+              <span className="v2-min-hours">· {facility.operatingHours}</span>
+            )}
           </div>
 
           <div className="v2-min-actions">
@@ -192,6 +195,14 @@ export default function EmergencyBottomCard({
               {facility.buildPlace || facility.buildAddress || '상세 설치 위치 정보 없음'}
             </span>
           </div>
+
+          {/* 운영시간 1줄 요약 */}
+          {facility.operatingHours && (
+            <div className={`v2-facility-hours ${isAvailableNow ? 'open' : 'closed'}`}>
+              <Clock size={12} className="v2-hours-icon" />
+              <span>{facility.operatingHours}</span>
+            </div>
+          )}
 
           {facility.buildAddress && (
             <div className="v2-facility-address">
@@ -320,6 +331,13 @@ export default function EmergencyBottomCard({
                           <Building size={13} className="text-slate-400" />
                           <span>{fac.buildPlace || fac.buildAddress || '위치 미제공'}</span>
                         </div>
+
+                        {fac.operatingHours && (
+                          <div className={`v2-item-hours-row ${itemOpen ? 'open' : 'closed'}`}>
+                            <Clock size={10} />
+                            <span>{fac.operatingHours}</span>
+                          </div>
+                        )}
                       </div>
 
                       <div className="v2-item-action-zone">

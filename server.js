@@ -149,24 +149,101 @@ function parseInstallYearFromSerial(serialSeq) {
   return null;
 }
 
-// 현재 시간 기준 개방 여부 확인
-function isCurrentlyAvailable(item) {
-  const now = new Date();
-  const day = now.getDay(); // 0: Sun, 1: Mon, ..., 6: Sat
-  const hour = now.getHours();
-  const minute = now.getMinutes();
-  const currentTimeInt = hour * 100 + minute;
+// 한국 표준시 (KST, UTC+9) 기준 현재 요일 및 시각 계산 (Vercel 클라우드 서버 UTC 시차 완벽 보정)
+function getKstNow() {
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Seoul',
+    hour12: false,
+    weekday: 'short',
+    hour: 'numeric',
+    minute: 'numeric',
+  });
+  const parts = formatter.formatToParts(new Date());
+  const map = {};
+  parts.forEach((p) => {
+    map[p.type] = p.value;
+  });
 
-  // 요일별 시작/종료 시간 속성 매핑
+  const dayMap = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+  const day = dayMap[map.weekday] !== undefined ? dayMap[map.weekday] : (new Date().getUTCDay() + 1) % 7;
+  const hour = parseInt(map.hour, 10);
+  const minute = parseInt(map.minute, 10);
+  return { day, hour, minute, currentTimeInt: hour * 100 + minute };
+}
+
+// 시간 문자열 포맷팅 (예: "0830" -> "08:30")
+function formatTimeStr(t) {
+  if (t === undefined || t === null || t === '') return '';
+  const s = String(t).padStart(4, '0');
+  return `${s.slice(0, 2)}:${s.slice(2, 4)}`;
+}
+
+// AED별 운영시간 간결한 1줄 요약 생성
+function getOperatingHoursSummary(item) {
+  if (!item) return '상시 개방';
+
+  const monStt = item.monSttTme ? parseInt(item.monSttTme, 10) : 0;
+  const monEnd = item.monEndTme ? parseInt(item.monEndTme, 10) : 2400;
+
+  // 24시간 여부 체크
+  if ((monStt === 0 || isNaN(monStt)) && (monEnd >= 2400 || isNaN(monEnd)) && item.sunFifYon === 'Y') {
+    return '24시간 상시 개방';
+  }
+
+  // 평일 시간 체크 (월~금)
+  const stt = item.monSttTme || item.wedSttTme || item.friSttTme;
+  const end = item.monEndTme || item.wedEndTme || item.friEndTme;
+
+  if (stt && end) {
+    const sttFmt = formatTimeStr(stt);
+    const endFmt = formatTimeStr(end);
+    const hasWeekend = item.satSttTme || item.sunFifYon === 'Y';
+    if (hasWeekend) {
+      return `매일 ${sttFmt}~${endFmt}`;
+    }
+    return `평일 ${sttFmt}~${endFmt} (주말 휴무)`;
+  }
+
+  return '상시 이용 가능';
+}
+
+// 현재 시간 기준 개방 여부 확인 (KST 9시간 시차 완벽 보정)
+function isCurrentlyAvailable(item) {
+  if (!item) return true;
+
+  const { day, currentTimeInt } = getKstNow();
+
+  // 요일별 속성 매핑 (0: 일, 1: 월, 2: 화, 3: 수, 4: 목, 5: 금, 6: 토)
   const dayPrefixes = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
   const prefix = dayPrefixes[day];
-  const stt = item[prefix + 'SttTme'] ? parseInt(item[prefix + 'SttTme'], 10) : 0;
-  const end = item[prefix + 'EndTme'] ? parseInt(item[prefix + 'EndTme'], 10) : 2400;
 
-  // 일요일 이용 가능 여부
+  // 일요일 이용 불가 처리
   if (day === 0 && item['sunFifYon'] === 'N') {
     return false;
   }
+
+  // 토요일 미운영 처리 (주말 휴무 학교/관공서)
+  if (day === 6 && item['satSttTme'] === undefined && item['satEndTme'] === undefined) {
+    const monEnd = item.monEndTme ? parseInt(item.monEndTme, 10) : 2400;
+    if (monEnd < 2400) return false;
+  }
+
+  const rawStt = item[prefix + 'SttTme'];
+  const rawEnd = item[prefix + 'EndTme'];
+
+  // 시작/종료 시간이 비어있는 경우
+  if (!rawStt && !rawEnd) {
+    // 평일인데 특정 요일 필드가 비어있으면 월요일 시간으로 대체
+    if (day >= 1 && day <= 5 && item.monSttTme && item.monEndTme) {
+      const fallbackStt = parseInt(item.monSttTme, 10);
+      const fallbackEnd = parseInt(item.monEndTme, 10);
+      return currentTimeInt >= fallbackStt && currentTimeInt <= fallbackEnd;
+    }
+    return true; // 기본값 개방
+  }
+
+  const stt = parseInt(rawStt, 10) || 0;
+  const end = parseInt(rawEnd, 10) || 2400;
 
   return currentTimeInt >= stt && currentTimeInt <= end;
 }
@@ -331,6 +408,7 @@ function getNearbyShelters(centerLat, centerLon, maxRadiusMeters = 5000) {
         locationConfidence: 'HIGH', // 행정안전부 공인 정밀좌표
         available24h: true, // 대피시설 상시대피 가능
         availableNow: true,
+        operatingHours: '24시간 긴급 상시대피',
         name: s.name,
         org: '행정안전부 민방위',
         buildAddress: s.buildAddress,
@@ -362,7 +440,7 @@ function getNearbyShelters(centerLat, centerLon, maxRadiusMeters = 5000) {
 app.get(['/api/facilities', '/facilities'], async (req, res) => {
   try {
     const lat = parseFloat(req.query.lat) || 37.5665;
-    const lon = parseFloat(req.query.lon) || 126.9780;
+    const lon = parseFloat(req.query.lon || req.query.lng) || 126.9780;
     const categoryFilter = req.query.category || 'all'; // all, aed, extinguisher, hydrant
     const verifiedOnly = req.query.verifiedOnly === 'true'; // 즉시 사용 가능한 장비만 필터링
 
@@ -477,6 +555,7 @@ app.get(['/api/facilities', '/facilities'], async (req, res) => {
               age: age !== null ? `${age}년` : '확인 불가',
               isAged,
               availableNow,
+              operatingHours: getOperatingHoursSummary(raw),
               reportsCount: reports.length,
               reports,
               checkin: facilityCheckins[facilityId] || null,
