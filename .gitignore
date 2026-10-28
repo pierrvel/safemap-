@@ -21,3 +21,6 @@ Thumbs.db
 # Vercel & Build outputs
 .vercel
 dist/
+
+# AI Agent config
+.claude/

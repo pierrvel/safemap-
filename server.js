@@ -11,6 +11,7 @@ const { mapWithConcurrency } = require('./lib/utils');
 const { isRegionalConflict } = require('./lib/address');
 const { getRegionInfo, geocodeAddress, geocodeSubLocation } = require('./lib/kakao');
 const { getNearbyShelters } = require('./lib/shelters');
+const { fetchTmapPedestrianRoute, getTmapApiKey } = require('./lib/tmap');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -620,16 +621,45 @@ app.post(['/api/routes/matrix', '/routes/matrix'], async (req, res) => {
       console.warn('Matrix fetch warning:', e.message);
     }
 
+    // 🌟 1순위 타깃(가장 가까운 후보)에 대해 Tmap 실측 거리가 가능하면 조회
+    let nearestTmapDist = null;
+    let nearestTmapDur = null;
+    if (getTmapApiKey() && targets.length > 0) {
+      try {
+        const tmapFirst = await fetchTmapPedestrianRoute(oLat, oLon, targets[0].lat, targets[0].lon, origin.name, targets[0].name);
+        if (tmapFirst && tmapFirst.success) {
+          nearestTmapDist = tmapFirst.distanceMeters;
+          nearestTmapDur = tmapFirst.durationSeconds;
+        }
+      } catch (err) {}
+    }
+
     const results = targets.map((t, idx) => {
       let distMeters = null;
       let durationSec = null;
+      let isReal = false;
+      const straight = calculateDistanceMeters(oLat, oLon, t.lat, t.lon);
 
-      if (data && data.code === 'Ok' && data.distances && data.distances[0] && data.distances[0][idx + 1] !== null) {
-        distMeters = Math.round(data.distances[0][idx + 1]);
-        durationSec = Math.round(data.durations[0][idx + 1]);
+      if (idx === 0 && nearestTmapDist !== null) {
+        distMeters = nearestTmapDist;
+        durationSec = nearestTmapDur;
+        isReal = true;
+      } else if (data && data.code === 'Ok' && data.distances && data.distances[0] && data.distances[0][idx + 1] !== null) {
+        const rawDist = Math.round(data.distances[0][idx + 1]);
+        const rawDur = Math.round(data.durations[0][idx + 1]);
+
+        // 🌟 OSRM 보행 도로망 우회 트랩 방어:
+        // 직선거리 600m 이내인데 도로망 단절/아파트 울타리 OSM 데이터 미비로 2배 이상 우회하는 경우 현실적 도보 거리 보정
+        if (straight <= 600 && rawDist > straight * 2.0) {
+          distMeters = Math.round(straight * 1.25);
+          durationSec = Math.round(distMeters / 1.25);
+        } else {
+          distMeters = rawDist;
+          durationSec = rawDur;
+        }
+        isReal = true;
       } else {
         // Fallback: 직선거리 x 1.25 (보행 도로망 우회 계수)
-        const straight = calculateDistanceMeters(oLat, oLon, t.lat, t.lon);
         distMeters = Math.round(straight * 1.25);
         durationSec = Math.round(distMeters / 1.25);
       }
@@ -643,7 +673,7 @@ app.post(['/api/routes/matrix', '/routes/matrix'], async (req, res) => {
         distanceMeters: distMeters,
         durationSeconds: durationSec,
         walkingTimeText,
-        isRealRoad: (data && data.code === 'Ok')
+        isRealRoad: isReal,
       };
     });
 
@@ -666,6 +696,14 @@ app.post(['/api/routes/directions', '/routes/directions'], async (req, res) => {
     const oLon = parseFloat(origin.lon);
     const dLat = parseFloat(destination.lat);
     const dLon = parseFloat(destination.lon);
+
+    // 🌟 1순위: Tmap (SK Open API) 보행자 경로 안내 (국내 보행로/아파트단지/골목/횡단보도 정밀 반영)
+    if (getTmapApiKey()) {
+      const tmapRoute = await fetchTmapPedestrianRoute(oLat, oLon, dLat, dLon, origin.name, destination.name);
+      if (tmapRoute && tmapRoute.success) {
+        return res.json(tmapRoute);
+      }
+    }
 
     const url = `https://routing.openstreetmap.de/routed-foot/route/v1/driving/${oLon},${oLat};${dLon},${dLat}?overview=full&geometries=geojson&steps=true`;
 
