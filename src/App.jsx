@@ -8,6 +8,7 @@ import EmergencyBottomCard from './components/v2/EmergencyBottomCard';
 import NavigationHUD from './components/v2/NavigationHUD';
 import CprMetronomeModal from './components/v2/CprMetronomeModal';
 import AuditModal from './components/v2/AuditModal';
+import PwaInstallModal from './components/v2/PwaInstallModal';
 import Toast from './components/Toast';
 
 import { useKakaoLoader } from './hooks/useKakaoLoader';
@@ -37,13 +38,85 @@ export default function App() {
   // 모달 및 토스트 상태
   const [showCprModal, setShowCprModal] = useState(false);
   const [showAuditModal, setShowAuditModal] = useState(false);
+  const [showInstallModal, setShowInstallModal] = useState(false);
   const [isCardExpanded, setIsCardExpanded] = useState(false);
   const [toastMessage, setToastMessage] = useState(null);
   const [isSearching, setIsSearching] = useState(false);
 
+  // 📲 PWA 앱 설치 및 독립 실행(Standalone) 상태 관리
+  const [deferredPrompt, setDeferredPrompt] = useState(null);
+  const [isStandalone, setIsStandalone] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return (
+      window.matchMedia('(display-mode: standalone)').matches ||
+      window.navigator.standalone === true ||
+      document.referrer.includes('android-app://')
+    );
+  });
+  const [isIos, setIsIos] = useState(false);
+  const [isAndroid, setIsAndroid] = useState(false);
+
   // 지도 카메라 및 '이 지역에서 재검색' 상태 (내 위치와 카메라 분리!)
   const [cameraCenter, setCameraCenter] = useState(null);
   const [showReSearchBtn, setShowReSearchBtn] = useState(false);
+
+  // 0. PWA 설치 이벤트 & 기기 환경 감지
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const ua = window.navigator.userAgent.toLowerCase();
+    const iosCheck = /iphone|ipad|ipod/.test(ua);
+    const androidCheck = /android/.test(ua);
+    setIsIos(iosCheck);
+    setIsAndroid(androidCheck);
+
+    // 안드로이드/PC 브라우저 네이티브 설치 프롬프트 인터셉트
+    const handleBeforeInstallPrompt = (e) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+      console.log('[PWA] beforeinstallprompt event captured');
+    };
+
+    // 앱 설치 완료 이벤트
+    const handleAppInstalled = () => {
+      setDeferredPrompt(null);
+      setIsStandalone(true);
+      setShowInstallModal(false);
+      setToastMessage('🎉 골든러너 119 앱이 성공적으로 설치되었습니다!');
+    };
+
+    // 독립 창(Standalone) 모드 감지 리스너
+    const mql = window.matchMedia('(display-mode: standalone)');
+    const handleDisplayChange = (e) => {
+      if (e.matches) setIsStandalone(true);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    window.addEventListener('appinstalled', handleAppInstalled);
+    mql.addEventListener?.('change', handleDisplayChange);
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+      window.removeEventListener('appinstalled', handleAppInstalled);
+      mql.removeEventListener?.('change', handleDisplayChange);
+    };
+  }, []);
+
+  // 네이티브 PWA 설치 실행 함수
+  const handleInstallNative = async () => {
+    if (!deferredPrompt) return;
+    try {
+      deferredPrompt.prompt();
+      const choiceResult = await deferredPrompt.userChoice;
+      if (choiceResult.outcome === 'accepted') {
+        setToastMessage('📲 골든러너 119 앱을 설치하는 중입니다...');
+        setDeferredPrompt(null);
+        setShowInstallModal(false);
+      }
+    } catch (err) {
+      console.warn('Install prompt error:', err);
+    }
+  };
 
   // 1. 서버 설정 조회
   useEffect(() => {
@@ -297,6 +370,8 @@ export default function App() {
             showToast('내 위치로 지도를 이동합니다.');
           }}
           isSearching={isSearching}
+          isStandalone={isStandalone}
+          onOpenInstallModal={() => setShowInstallModal(true)}
         />
       )}
 
@@ -349,6 +424,16 @@ export default function App() {
         isOpen={showAuditModal}
         onClose={() => setShowAuditModal(false)}
         onSuccess={(msg) => showToast(msg)}
+      />
+
+      {/* 6.5 📲 PWA 앱 설치 안내 및 네이티브 설치 모달 */}
+      <PwaInstallModal
+        isOpen={showInstallModal}
+        onClose={() => setShowInstallModal(false)}
+        deferredPrompt={deferredPrompt}
+        onInstallNative={handleInstallNative}
+        isIos={isIos}
+        isAndroid={isAndroid}
       />
 
       {/* 7. 토스트 알림 */}

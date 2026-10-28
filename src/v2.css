@@ -1594,3 +1594,236 @@ body, html {
     width: 380px;
   }
 }
+
+/* ==========================================================
+   PWA 앱 설치 모달 & 필터 칩 스타일
+   ========================================================== */
+.v2-filter-chip.install-pwa-btn {
+  background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+  border-color: #93c5fd;
+  color: #1d4ed8;
+  font-weight: 800;
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.12);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.v2-filter-chip.install-pwa-btn:active {
+  background: #bfdbfe;
+  transform: scale(0.95);
+}
+
+.v2-filter-chip.install-pwa-btn .install-icon {
+  color: #2563eb;
+  animation: v2-bounce-subtle 2s infinite ease-in-out;
+}
+
+@keyframes v2-bounce-subtle {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-2px); }
+}
+
+.v2-pwa-header-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.v2-pwa-preview-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  margin-bottom: 14px;
+}
+
+.v2-pwa-app-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.12);
+  flex-shrink: 0;
+  object-fit: cover;
+}
+
+.v2-pwa-app-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.v2-pwa-app-title {
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: #0f172a;
+  letter-spacing: -0.02em;
+}
+
+.v2-pwa-app-desc {
+  font-size: 0.76rem;
+  color: #64748b;
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.v2-pwa-badges {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+
+.v2-pwa-mini-badge {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #2563eb;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  padding: 2px 7px;
+  border-radius: 9999px;
+}
+
+.v2-pwa-benefits-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.v2-pwa-benefit-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: #ffffff;
+  border: 1px solid #f1f5f9;
+  border-radius: 12px;
+}
+
+.v2-pwa-benefit-dot {
+  font-size: 1.1rem;
+  flex-shrink: 0;
+}
+
+.v2-pwa-benefit-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.v2-pwa-benefit-text strong {
+  font-size: 0.78rem;
+  color: #0f172a;
+}
+
+.v2-pwa-benefit-text span {
+  font-size: 0.72rem;
+  color: #64748b;
+}
+
+.v2-pwa-guide-box {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  padding: 14px;
+}
+
+.v2-btn-pwa-install-primary {
+  width: 100%;
+  padding: 13px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+  color: #ffffff;
+  border: none;
+  font-size: 0.92rem;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.3);
+  transition: all 0.15s ease;
+}
+
+.v2-btn-pwa-install-primary:active {
+  transform: scale(0.98);
+}
+
+.v2-pwa-native-sub {
+  font-size: 0.74rem;
+  color: #64748b;
+  text-align: center;
+  margin-top: 8px;
+  margin-bottom: 0;
+}
+
+.v2-pwa-guide-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.82rem;
+  font-weight: 800;
+  color: #0f172a;
+  margin-bottom: 10px;
+}
+
+.v2-ios-apple-icon {
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+.v2-pwa-steps-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.v2-pwa-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.v2-pwa-step-num {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #2563eb;
+  color: #ffffff;
+  font-size: 0.7rem;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.v2-pwa-step-desc {
+  font-size: 0.78rem;
+  color: #334155;
+  line-height: 1.45;
+}
+
+.v2-pwa-pc-hint {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed #cbd5e1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.72rem;
+  color: #64748b;
+}
+

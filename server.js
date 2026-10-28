@@ -53,6 +53,28 @@ app.get(['/', '/index.html'], (req, res, next) => {
   next();
 });
 
+// PWA 서비스 워커 및 매니페스트 캐시 제어
+app.get('/sw.js', (req, res, next) => {
+  const swPath = path.join(staticDir, 'sw.js');
+  if (fs.existsSync(swPath)) {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+    res.setHeader('Service-Worker-Allowed', '/');
+    return res.sendFile(swPath);
+  }
+  next();
+});
+
+app.get(['/manifest.json', '/manifest.webmanifest'], (req, res, next) => {
+  const mPath = path.join(staticDir, 'manifest.json');
+  if (fs.existsSync(mPath)) {
+    res.setHeader('Content-Type', 'application/manifest+json; charset=utf-8');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    return res.sendFile(mPath);
+  }
+  next();
+});
+
 app.use(express.static(staticDir));
 
 // 환경변수 기반 API 키 및 설정

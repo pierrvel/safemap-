@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2563eb" />
+      <stop offset="100%" stop-color="#1e3a8a" />
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#000000" flood-opacity="0.25" />
+    </filter>
+  </defs>
+  
+  <!-- Rounded Squircle Background -->
+  <rect x="16" y="16" width="480" height="480" rx="110" fill="url(#bgGrad)" filter="url(#shadow)" />
+  
+  <!-- Subtle Cross -->
+  <rect x="236" y="90" width="40" height="332" rx="20" fill="#ffffff" opacity="0.15" />
+  <rect x="90" y="236" width="332" height="40" rx="20" fill="#ffffff" opacity="0.15" />
+  
+  <!-- Emergency Heart -->
+  <path d="M256,410 C150,310 100,240 100,175 C100,120 140,80 195,80 C230,80 250,105 256,115 C262,105 282,80 317,80 C372,80 412,120 412,175 C412,240 362,310 256,410 Z" fill="#ef4444" />
+  
+  <!-- Golden Lightning Bolt -->
+  <polygon points="268,130 188,270 248,270 236,370 324,230 264,230" fill="#fef08a" stroke="#ca8a04" stroke-width="6" stroke-linejoin="round" />
+</svg>

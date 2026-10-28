@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Search, Crosshair, X, Shield, Clock, Zap } from 'lucide-react';
+import { Search, Crosshair, X, Shield, Clock, Zap, Download } from 'lucide-react';
 
 /**
  * 📱 모바일 세로모드 최적화 미니멀 상단 바
@@ -15,6 +15,8 @@ export default function HeaderBar({
   onSearch,
   onResetGps,
   isSearching,
+  isStandalone = false,
+  onOpenInstallModal,
 }) {
   const [keyword, setKeyword] = useState('');
 
@@ -119,6 +121,19 @@ export default function HeaderBar({
           <span>대피소</span>
           <span className="v2-chip-count emerald">{counts.shelter || 0}</span>
         </button>
+
+        {/* 📲 PWA 홈 화면 앱 설치 버튼 (단독 앱 실행 모드가 아닐 때 노출) */}
+        {!isStandalone && onOpenInstallModal && (
+          <button
+            type="button"
+            className="v2-filter-chip install-pwa-btn"
+            onClick={onOpenInstallModal}
+            title="스마트폰/PC 홈 화면에 앱 설치하기"
+          >
+            <Download size={13} className="v2-chip-icon install-icon" />
+            <span>앱 설치</span>
+          </button>
+        )}
       </div>
     </header>
   );
