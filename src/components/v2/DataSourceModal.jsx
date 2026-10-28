@@ -14,7 +14,7 @@ export default function DataSourceModal({ isOpen, onClose }) {
         <div className="v2-modal-header">
           <div className="v2-modal-title-row">
             <div className="v2-pwa-header-icon" style={{ background: '#fef3c7', borderColor: '#fde68a' }}>
-              <Database size={20} className="text-amber-600" />
+              <Database size={20} color="#d97706" />
             </div>
             <div>
               <h3 className="v2-modal-title">데이터 출처 및 이용 안내</h3>
