@@ -9,6 +9,7 @@ import NavigationHUD from './components/v2/NavigationHUD';
 import CprMetronomeModal from './components/v2/CprMetronomeModal';
 import AuditModal from './components/v2/AuditModal';
 import PwaInstallModal from './components/v2/PwaInstallModal';
+import DataSourceModal from './components/v2/DataSourceModal';
 import Toast from './components/Toast';
 
 import { useKakaoLoader } from './hooks/useKakaoLoader';
@@ -59,6 +60,7 @@ export default function App() {
   const [showCprModal, setShowCprModal] = useState(false);
   const [showAuditModal, setShowAuditModal] = useState(false);
   const [showInstallModal, setShowInstallModal] = useState(false);
+  const [showInfoModal, setShowInfoModal] = useState(false);
   const [isCardExpanded, setIsCardExpanded] = useState(false);
   const [toastMessage, setToastMessage] = useState(null);
   const [isSearching, setIsSearching] = useState(false);
@@ -428,6 +430,7 @@ export default function App() {
           isSearching={isSearching}
           isStandalone={isStandalone}
           onOpenInstallModal={() => setShowInstallModal(true)}
+          onOpenInfo={() => setShowInfoModal(true)}
         />
       )}
 
@@ -493,6 +496,12 @@ export default function App() {
         onInstallNative={handleInstallNative}
         isIos={isIos}
         isAndroid={isAndroid}
+      />
+
+      {/* 6.7 ℹ️ [7] 데이터 출처·기준일 및 필수 응급 주의사항 모달 */}
+      <DataSourceModal
+        isOpen={showInfoModal}
+        onClose={() => setShowInfoModal(false)}
       />
 
       {/* 7. 토스트 알림 */}

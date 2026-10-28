@@ -378,6 +378,31 @@ body, html {
   border-color: #cbd5e1;
 }
 
+.v2-card-legal-disclaimer {
+  padding: 8px 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  margin-top: 10px;
+}
+
+.v2-legal-warning-text {
+  font-size: 0.72rem;
+  color: #e11d48;
+  margin: 0 0 2px 0;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.v2-legal-source-text {
+  font-size: 0.67rem;
+  color: #64748b;
+  margin: 0;
+  line-height: 1.35;
+}
+
 @keyframes v2-card-up {
   from { transform: translateY(20px); opacity: 0; }
   to { transform: translateY(0); opacity: 1; }

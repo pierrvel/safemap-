@@ -137,6 +137,16 @@ export default function EmergencyBottomCard({
               <span>119 통화</span>
             </a>
           </div>
+
+          {/* 🌟 [7] 필수 응급 주의사항 및 데이터 출처 요약 */}
+          <div className="v2-card-legal-disclaimer">
+            <p className="v2-legal-warning-text">
+              ⚠️ <strong>응급 상황에서는 119 신고가 먼저입니다.</strong>
+            </p>
+            <p className="v2-legal-source-text">
+              위치·운영시간은 실제와 다를 수 있습니다. (AED: 국립중앙의료원 / 대피소: 행정안전부 2026.10 기준)
+            </p>
+          </div>
         </div>
       </section>
     );
@@ -408,6 +418,16 @@ export default function EmergencyBottomCard({
             <ExternalLink size={15} />
             <span>카카오맵</span>
           </a>
+        </div>
+
+        {/* 🌟 [7] 필수 응급 주의사항 및 데이터 출처 요약 */}
+        <div className="v2-card-legal-disclaimer">
+          <p className="v2-legal-warning-text">
+            ⚠️ <strong>응급 상황에서는 119 신고가 먼저입니다.</strong>
+          </p>
+          <p className="v2-legal-source-text">
+            위치·운영시간은 실제와 다를 수 있습니다. (AED: 국립중앙의료원 / 대피소: 행정안전부 2026.10 기준)
+          </p>
         </div>
 
         {/* 6. 주변 시설 목록 (리스트) 접기/펼치기 서랍 */}

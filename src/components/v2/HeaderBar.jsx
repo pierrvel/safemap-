@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Search, Crosshair, X, Shield, Clock, Zap, Download } from 'lucide-react';
+import { Search, Crosshair, X, Shield, Clock, Zap, Download, Info } from 'lucide-react';
 
 /**
  * 📱 모바일 세로모드 최적화 미니멀 상단 바
@@ -17,6 +17,7 @@ export default function HeaderBar({
   isSearching,
   isStandalone = false,
   onOpenInstallModal,
+  onOpenInfo,
 }) {
   const [keyword, setKeyword] = useState('');
 
@@ -132,6 +133,20 @@ export default function HeaderBar({
           >
             <Download size={13} className="v2-chip-icon install-icon" />
             <span>앱 설치</span>
+          </button>
+        )}
+
+        {/* 🌟 [7] 데이터 출처·기준일 및 주의사항 안내 버튼 */}
+        {onOpenInfo && (
+          <button
+            type="button"
+            className="v2-filter-chip"
+            onClick={onOpenInfo}
+            title="데이터 출처·기준일 및 주의사항 안내"
+            style={{ background: '#f8fafc', color: '#64748b' }}
+          >
+            <Info size={13} className="v2-chip-icon text-slate-500" />
+            <span>출처·주의</span>
           </button>
         )}
       </div>
