@@ -26,7 +26,11 @@ export default function MapView({
   useEffect(() => {
     if (!isLoaded || !mapContainerRef.current || mapRef.current) return;
 
-    const initialPos = new window.kakao.maps.LatLng(userCoords.lat, userCoords.lon);
+    const hasUserCoords = !!(userCoords?.lat && userCoords?.lon);
+    const initialPos = hasUserCoords
+      ? new window.kakao.maps.LatLng(userCoords.lat, userCoords.lon)
+      : new window.kakao.maps.LatLng(37.5665, 126.9780);
+
     const options = {
       center: initialPos,
       level: 3,
@@ -39,7 +43,7 @@ export default function MapView({
     mapRef.current = map;
     map.setDraggable(true);
     map.setZoomable(true);
-    isInitialCenteringDone.current = true;
+    isInitialCenteringDone.current = hasUserCoords;
 
     // 🌟 핵심 수정: 지도 드래그 시 내 위치를 옮기지 않고, 카메라 중심 이동만 부모에 알림
     window.kakao.maps.event.addListener(map, 'dragend', () => {
@@ -51,11 +55,19 @@ export default function MapView({
         });
       }
     });
-  }, [isLoaded, userCoords, onCameraMove]);
+  }, [isLoaded, onCameraMove]);
 
   // 2. 🌟 사용자 위치 마커 갱신 (지도를 아무리 움직여도 내 위치는 실제 GPS 좌표에 고정!)
   useEffect(() => {
     if (!mapRef.current || !window.kakao?.maps) return;
+
+    if (!userCoords?.lat || !userCoords?.lon) {
+      if (userMarkerRef.current) {
+        userMarkerRef.current.setMap(null);
+        userMarkerRef.current = null;
+      }
+      return;
+    }
 
     const pos = new window.kakao.maps.LatLng(userCoords.lat, userCoords.lon);
 
@@ -68,7 +80,14 @@ export default function MapView({
       });
       userMarkerRef.current = marker;
     } else {
+      userMarkerRef.current.setMap(mapRef.current);
       userMarkerRef.current.setPosition(pos);
+    }
+
+    // 아직 최초 중심 이동이 안 된 상태에서 유효 좌표가 들어왔을 때 지도 중심을 내 위치로 이동
+    if (!isInitialCenteringDone.current) {
+      mapRef.current.setCenter(pos);
+      isInitialCenteringDone.current = true;
     }
   }, [userCoords]);
 

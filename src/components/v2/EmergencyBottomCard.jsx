@@ -31,6 +31,9 @@ export default function EmergencyBottomCard({
   onSelectFacility,
   isExpanded,
   onToggleExpand,
+  isLocating = false,
+  locationError = null,
+  isCachedView = false,
 }) {
   // 🌟 네이티브 앱 수준의 3단계 스냅 상태 관리
   const [sheetState, setSheetState] = useState('default'); // 'collapsed' | 'default' | 'expanded'
@@ -92,17 +95,37 @@ export default function EmergencyBottomCard({
     currentDragY.current = 0;
   };
 
-  // 시설 데이터가 아직 로딩 중이거나 없는 경우의 긴급 대기 바
+  // 시설 데이터가 아직 로딩 중이거나 위치가 없는 경우의 안내 바
   if (!facility) {
     return (
-      <section className="v2-bottom-card empty-state" aria-label="긴급 안전시설 대기 바">
+      <section className="v2-bottom-card empty-state" aria-label="긴급 안전시설 안내 바">
         <div className="v2-card-body">
           <div className="v2-empty-status-row">
-            <div className="v2-empty-spinner"></div>
-            <div className="v2-empty-text">
-              <strong>주변 안전시설을 탐색하고 있습니다...</strong>
-              <span>반경 3km 내 AED 및 대피소 검색 중</span>
-            </div>
+            {isLocating ? (
+              <>
+                <div className="v2-empty-spinner"></div>
+                <div className="v2-empty-text">
+                  <strong>위치를 확인하는 중입니다...</strong>
+                  <span>GPS 신호를 수신하고 있습니다. 잠시만 기다려주세요.</span>
+                </div>
+              </>
+            ) : locationError ? (
+              <>
+                <div className="v2-empty-icon" style={{ fontSize: '22px' }}>📍</div>
+                <div className="v2-empty-text">
+                  <strong>위치를 확인할 수 없어요</strong>
+                  <span>상단 검색창에서 장소를 검색해 위치를 지정해 주세요</span>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="v2-empty-spinner"></div>
+                <div className="v2-empty-text">
+                  <strong>주변 안전시설을 탐색하고 있습니다...</strong>
+                  <span>반경 3km 내 AED 및 대피소 검색 중</span>
+                </div>
+              </>
+            )}
           </div>
           <div className="v2-quick-action-row">
             <button type="button" className="v2-btn-cpr-hero" onClick={onOpenCpr}>
@@ -246,6 +269,12 @@ export default function EmergencyBottomCard({
               </span>
             ) : (
               <span className="v2-tag-status closed">🌙 야간 운영시간 외</span>
+            )}
+
+            {isCachedView && (
+              <span className="v2-tag-status" style={{ background: '#f1f5f9', color: '#64748b' }} title="현재 위치 기준 이전 캐시 데이터입니다">
+                이전 결과
+              </span>
             )}
 
             {/* 🌟 자체 위치 자동 보정 배지 */}

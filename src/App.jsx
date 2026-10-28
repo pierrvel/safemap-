@@ -22,6 +22,22 @@ import {
 
 const CACHE_KEY = 'goldenrunner_cached_facilities_v2';
 
+// 🌟 [1] 두 좌표 간 거리(미터) 계산 유틸리티
+function getDistanceMeters(lat1, lon1, lat2, lon2) {
+  if (!lat1 || !lon1 || !lat2 || !lon2) return Infinity;
+  const R = 6371000;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
 export default function App() {
   const [config, setConfig] = useState(null);
   const [category, setCategory] = useState('all'); // 'all' | 'aed' | 'shelter'
@@ -29,6 +45,10 @@ export default function App() {
 
   const [facilities, setFacilities] = useState([]);
   const [selectedFacility, setSelectedFacility] = useState(null);
+  const [isCachedView, setIsCachedView] = useState(false);
+
+  // 🌟 [1] 비동기 요청 번호 카운터: 가장 마지막에 보낸 요청의 응답만 화면에 반영
+  const lastFacilitiesReqId = useRef(0);
 
   // 내비게이션 상태
   const [isNavigating, setIsNavigating] = useState(false);
@@ -129,49 +149,77 @@ export default function App() {
   const { loaded: isKakaoLoaded, error: kakaoError } = useKakaoLoader(config?.kakaoMapApiKey);
 
   // 3. 실시간 GPS 지오로케이션
-  const { coords, requestGps, setManualCoords } = useGeolocation();
+  const {
+    coords,
+    hasLocation,
+    loading: isLocating,
+    errorMsg: locationError,
+    requestGps,
+    setManualCoords,
+  } = useGeolocation();
 
   const showToast = useCallback((msg) => {
     setToastMessage(msg);
   }, []);
 
-  // 4. Stale-While-Revalidate 로컬 캐시 즉각 렌더 (0.01초 체감)
+  // 4. 🌟 [1] 로컬 캐시: 위치가 확정되기 전에는 절대 캐시 항목을 현재 시설로 띄우지 않음!
+  // 위치가 확정된 후 현재 위치와 200m 이내일 때만 '이전 결과'로 즉각 노출
   useEffect(() => {
+    if (!coords.lat || !coords.lon) return;
     try {
       const cachedStr = localStorage.getItem(CACHE_KEY);
       if (cachedStr) {
         const cached = JSON.parse(cachedStr);
-        if (cached?.facilities?.length > 0) {
-          setFacilities(cached.facilities);
-          setSelectedFacility(cached.facilities[0]);
+        if (cached?.coords?.lat && cached?.coords?.lon && cached?.facilities?.length > 0) {
+          const dist = getDistanceMeters(coords.lat, coords.lon, cached.coords.lat, cached.coords.lon);
+          if (dist <= 200) {
+            setFacilities(cached.facilities);
+            setSelectedFacility(cached.facilities[0]);
+            setIsCachedView(true);
+          }
         }
       }
     } catch (e) {
       console.warn('Cache parsing failed:', e);
     }
-  }, []);
+  }, [coords.lat, coords.lon]);
 
   // 5. 시설 데이터 수집 및 비동기 OSRM 도로망 거리 보정
   const loadFacilities = useCallback(
     async (lat, lon, cat = category) => {
+      if (!lat || !lon) return;
+
+      // 🌟 [1] 요청마다 증가하는 시퀀스 번호 할당 (Race Condition 완벽 방지)
+      const reqId = ++lastFacilitiesReqId.current;
+
       const res = await fetchFacilities(lat, lon, cat, false);
+
+      // 더 최신 요청이 이미 발생했으면 이전 응답은 폐기
+      if (reqId !== lastFacilitiesReqId.current) {
+        console.log(`[App] Stale facilities response ignored (${reqId} < ${lastFacilitiesReqId.current})`);
+        return;
+      }
+
       if (res.success && res.facilities) {
         const loadedList = res.facilities;
         setFacilities(loadedList);
+        setIsCachedView(false);
 
         if (loadedList.length > 0) {
-          // 기본적으로 가장 가까운 1순위 시설을 선택 상태로 설정
           setSelectedFacility((prev) => {
             const found = loadedList.find((f) => f.id === prev?.id);
             return found || loadedList[0];
           });
+        } else {
+          setSelectedFacility(null);
         }
 
-        // 로컬 캐시 갱신
+        // 로컬 캐시 갱신 (좌표 함께 저장)
         try {
           localStorage.setItem(
             CACHE_KEY,
             JSON.stringify({
+              coords: { lat, lon },
               facilities: loadedList,
               timestamp: Date.now(),
             })
@@ -189,6 +237,9 @@ export default function App() {
           }));
 
           fetchRouteMatrix({ lat, lon }, topCandidates).then((matrixRes) => {
+            // matrix 응답 도착 시점에도 최신 요청인지 검증
+            if (reqId !== lastFacilitiesReqId.current) return;
+
             if (matrixRes.success && matrixRes.results) {
               const resMap = new Map(matrixRes.results.map((r) => [r.id, r]));
               setFacilities((prev) =>
@@ -287,6 +338,11 @@ export default function App() {
 
   // 실시간 도보 내비게이션 시작
   const handleStartNavigation = async (targetFacility) => {
+    // 🌟 [1] 위치 미확정 시 길안내 실행 원천 차단
+    if (!coords.lat || !coords.lon) {
+      showToast('현재 위치가 확정되지 않아 길안내를 시작할 수 없습니다. 상단에서 위치를 검색해 주세요.');
+      return;
+    }
     if (!targetFacility) return;
     setNavTarget(targetFacility);
     setIsNavigating(true);
@@ -400,6 +456,9 @@ export default function App() {
           onSelectFacility={(fac) => setSelectedFacility(fac)}
           isExpanded={isCardExpanded}
           onToggleExpand={() => setIsCardExpanded((prev) => !prev)}
+          isLocating={isLocating}
+          locationError={locationError}
+          isCachedView={isCachedView}
         />
       )}
 
