@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useCallback } from 'react';
-import { Crosshair } from 'lucide-react';
+import { Crosshair, WifiOff } from 'lucide-react';
 import {
   createCustomPinIcon,
   createClusterPinIcon,
@@ -42,6 +42,7 @@ export default function MapView({
   navRouteCoordinates,
   onCameraMove,
   onRequestGps,
+  unavailableMessage = null,
 }) {
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
@@ -384,6 +385,14 @@ export default function MapView({
   return (
     <div className="v2-map-wrapper">
       <div id="v2MapContainer" ref={mapContainerRef} className="v2-map-canvas" />
+
+      {/* 오프라인·지도 로드 실패 시 안내 */}
+      {unavailableMessage && (
+        <div className="v2-map-unavailable" role="status">
+          <WifiOff size={20} />
+          <span>{unavailableMessage}</span>
+        </div>
+      )}
 
       {/* 우측 플로팅 컨트롤 */}
       <div className="v2-map-fab-stack">

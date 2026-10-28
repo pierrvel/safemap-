@@ -20,6 +20,7 @@ import {
   ChevronRight,
   Search,
   LocateFixed,
+  Compass,
 } from 'lucide-react';
 
 /**
@@ -43,6 +44,7 @@ export default function EmergencyBottomCard({
   locationError = null,
   onRetryLocation,
   isCachedView = false,
+  isOfflineView = false,
 }) {
   // 🌟 네이티브 앱 수준의 3단계 스냅 상태 관리
   const [sheetState, setSheetState] = useState('default'); // 'collapsed' | 'default' | 'expanded'
@@ -360,8 +362,13 @@ export default function EmergencyBottomCard({
           </div>
 
           {/* 위치 보정·주의 등 부가 정보는 작은 한 줄로 */}
-          {(isCalibrated || facility.locationConfidence === 'CHECK_NEEDED' || isCachedView || isGolden) && (
+          {(isCalibrated || facility.locationConfidence === 'CHECK_NEEDED' || isCachedView || isGolden || facility.direction) && (
             <div className="v2-facility-notes">
+              {facility.direction && (
+                <span className="v2-note direction">
+                  <Compass size={11} /> 내 위치에서 {facility.direction} {dist}m
+                </span>
+              )}
               {isGolden && <span className="v2-note golden">골든타임 4분 이내</span>}
               {facility.locationConfidence === 'CHECK_NEEDED' && (
                 <span
@@ -380,7 +387,9 @@ export default function EmergencyBottomCard({
                 </span>
               )}
               {isCachedView && (
-                <span className="v2-note" title="현재 위치 기준 이전 캐시 데이터입니다">이전 검색 결과</span>
+                <span className={`v2-note ${isOfflineView ? 'warn' : ''}`} title="현재 위치 기준 이전 캐시 데이터입니다">
+                  {isOfflineView ? '오프라인 · 마지막 검색 결과' : '이전 검색 결과'}
+                </span>
               )}
             </div>
           )}
@@ -449,16 +458,18 @@ export default function EmergencyBottomCard({
             <span>119 신고</span>
           </a>
 
-          {/* C. 현장 실사 점검 */}
-          <button
-            type="button"
-            className="v2-action-pill audit"
-            onClick={onOpenAudit}
-            title="현장 실사 점검"
-          >
-            <ClipboardCheck size={16} />
-            <span>실사 점검</span>
-          </button>
+          {/* C. 현장 실사 점검 (기능 활성화 시에만 표시) */}
+          {onOpenAudit && (
+            <button
+              type="button"
+              className="v2-action-pill audit"
+              onClick={onOpenAudit}
+              title="현장 실사 점검"
+            >
+              <ClipboardCheck size={16} />
+              <span>실사 점검</span>
+            </button>
+          )}
 
           {/* D. 외부 카카오맵 길찾기 연동 */}
           <a

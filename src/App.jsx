@@ -14,6 +14,7 @@ import Toast from './components/Toast';
 
 import { useKakaoLoader } from './hooks/useKakaoLoader';
 import { useGeolocation } from './hooks/useGeolocation';
+import { useWakeLock } from './hooks/useWakeLock';
 import {
   fetchConfig,
   fetchFacilities,
@@ -22,6 +23,50 @@ import {
 } from './services/api';
 
 const CACHE_KEY = 'goldenrunner_cached_facilities_v2';
+// 현장 점검·제보 기능: 저장소(DB)와 제보 검증 체계가 갖춰지기 전까지 화면에서 숨김
+const ENABLE_FIELD_AUDIT = false;
+const REAL_ROUTE_TOP_N = 10;
+const OFFLINE_CACHE_MAX_METERS = 10000;
+const OFF_ROUTE_METERS = 50;
+const OFF_ROUTE_GRACE_MS = 5000;
+
+// 두 좌표 간 방위(8방향) 텍스트 — 오프라인으로 지도가 없을 때 방향 안내용
+const DIRECTION_NAMES = ['북쪽', '북동쪽', '동쪽', '남동쪽', '남쪽', '남서쪽', '서쪽', '북서쪽'];
+function getDirectionText(lat1, lon1, lat2, lon2) {
+  const toRad = (d) => (d * Math.PI) / 180;
+  const y = Math.sin(toRad(lon2 - lon1)) * Math.cos(toRad(lat2));
+  const x =
+    Math.cos(toRad(lat1)) * Math.sin(toRad(lat2)) -
+    Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(toRad(lon2 - lon1));
+  const bearing = ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+  return DIRECTION_NAMES[Math.round(bearing / 45) % 8];
+}
+
+// 오프라인 시 마지막 검색 결과(로컬 저장)를 현재 위치 기준으로 다시 계산 (10km 이내 결과만 사용)
+function buildOfflineFacilities(lat, lon) {
+  try {
+    const cached = JSON.parse(localStorage.getItem(CACHE_KEY) || 'null');
+    if (!cached?.facilities?.length || !cached.coords) return null;
+    if (getDistanceMeters(lat, lon, cached.coords.lat, cached.coords.lon) > OFFLINE_CACHE_MAX_METERS) return null;
+    return cached.facilities
+      .map((f) => {
+        const dist = Math.round(getDistanceMeters(lat, lon, f.lat, f.lon));
+        return {
+          ...f,
+          distanceMeters: dist,
+          walkingTime: `약 ${Math.max(1, Math.round(dist / 75))}분`,
+          realDistanceMeters: undefined,
+          realDurationText: undefined,
+          direction: getDirectionText(lat, lon, f.lat, f.lon),
+          // 저장 시점의 개방 여부는 지금과 다를 수 있음
+          availableNow: f.available24h ? true : null,
+        };
+      })
+      .sort((a, b) => a.distanceMeters - b.distanceMeters);
+  } catch (e) {
+    return null;
+  }
+}
 
 // 🌟 [1] 두 좌표 간 거리(미터) 계산 유틸리티
 function getDistanceMeters(lat1, lon1, lat2, lon2) {
@@ -47,9 +92,17 @@ export default function App() {
   const [facilities, setFacilities] = useState([]);
   const [selectedFacility, setSelectedFacility] = useState(null);
   const [isCachedView, setIsCachedView] = useState(false);
+  const [isOfflineView, setIsOfflineView] = useState(false);
+  const [isOnline, setIsOnline] = useState(() => (typeof navigator === 'undefined' ? true : navigator.onLine));
 
   // 🌟 [1] 비동기 요청 번호 카운터: 가장 마지막에 보낸 요청의 응답만 화면에 반영
   const lastFacilitiesReqId = useRef(0);
+  // 사용자가 지도·목록에서 직접 시설을 골랐는지 (실거리 재정렬 시 선택을 바꾸지 않기 위함)
+  const userPickedFacilityRef = useRef(false);
+  const handleUserSelectFacility = useCallback((fac) => {
+    userPickedFacilityRef.current = true;
+    setSelectedFacility(fac);
+  }, []);
 
   // 내비게이션 상태
   const [isNavigating, setIsNavigating] = useState(false);
@@ -83,6 +136,9 @@ export default function App() {
   // 지도 카메라 및 '이 지역에서 재검색' 상태 (내 위치와 카메라 분리!)
   const [cameraCenter, setCameraCenter] = useState(null);
   const [showReSearchBtn, setShowReSearchBtn] = useState(false);
+
+  // 길안내·CPR 중에는 화면이 꺼지지 않도록 유지
+  useWakeLock(isNavigating || showCprModal);
 
   // 0. PWA 설치 이벤트 & 기기 환경 감지
   useEffect(() => {
@@ -200,6 +256,7 @@ export default function App() {
 
       // 🌟 [1] 요청마다 증가하는 시퀀스 번호 할당 (Race Condition 완벽 방지)
       const reqId = ++lastFacilitiesReqId.current;
+      userPickedFacilityRef.current = false;
 
       const res = await fetchFacilities(lat, lon, cat, false);
 
@@ -209,10 +266,26 @@ export default function App() {
         return;
       }
 
+      // 🌟 네트워크 장애 시: 마지막 검색 결과를 현재 GPS 위치 기준 거리·방향으로 다시 계산해 표시
+      if (!res.success) {
+        const offlineList = buildOfflineFacilities(lat, lon);
+        if (offlineList) {
+          setFacilities(offlineList);
+          setSelectedFacility(offlineList[0]);
+          setIsCachedView(true);
+          setIsOfflineView(true);
+          showToast('📴 네트워크 연결이 불안정해 마지막 검색 결과를 보여드려요.');
+        } else {
+          showToast('네트워크 연결을 확인해 주세요. 시설 정보를 불러오지 못했어요.');
+        }
+        return;
+      }
+
       if (res.success && res.facilities) {
         const loadedList = res.facilities;
         setFacilities(loadedList);
         setIsCachedView(false);
+        setIsOfflineView(false);
 
         if (loadedList.length > 0) {
           setSelectedFacility((prev) => {
@@ -237,9 +310,10 @@ export default function App() {
           // ignore storage quota
         }
 
-        // 상위 3개 핵심 시설 OSRM 도로망 실거리 정밀 보정
+        // 🌟 직선거리 상위 10개 시설의 실제 도보 거리를 계산해 다시 정렬
+        // (길이 막혀 돌아가야 하는 경우 직선상 1위가 실제로는 더 멀 수 있음)
         if (loadedList.length > 0) {
-          const topCandidates = loadedList.slice(0, 3).map((f) => ({
+          const topCandidates = loadedList.slice(0, REAL_ROUTE_TOP_N).map((f) => ({
             id: f.id,
             lat: f.lat,
             lon: f.lon,
@@ -248,37 +322,38 @@ export default function App() {
           fetchRouteMatrix({ lat, lon }, topCandidates).then((matrixRes) => {
             // matrix 응답 도착 시점에도 최신 요청인지 검증
             if (reqId !== lastFacilitiesReqId.current) return;
+            if (!matrixRes.success || !matrixRes.results) return;
 
-            if (matrixRes.success && matrixRes.results) {
-              const resMap = new Map(matrixRes.results.map((r) => [r.id, r]));
-              setFacilities((prev) =>
-                prev.map((f) => {
-                  const m = resMap.get(f.id);
-                  if (m) {
-                    return {
-                      ...f,
-                      realDistanceMeters: m.distanceMeters,
-                      realDurationText: m.walkingTimeText,
-                      isRealRoad: m.isRealRoad,
-                    };
+            const resMap = new Map(matrixRes.results.map((r) => [r.id, r]));
+            const withReal = loadedList.map((f) => {
+              const m = resMap.get(f.id);
+              return m
+                ? {
+                    ...f,
+                    realDistanceMeters: m.distanceMeters,
+                    realDurationText: m.walkingTimeText,
+                    isRealRoad: m.isRealRoad,
                   }
-                  return f;
-                })
-              );
+                : f;
+            });
 
-              setSelectedFacility((prev) => {
-                if (!prev) return prev;
-                const m = resMap.get(prev.id);
-                return m
-                  ? {
-                      ...prev,
-                      realDistanceMeters: m.distanceMeters,
-                      realDurationText: m.walkingTimeText,
-                      isRealRoad: m.isRealRoad,
-                    }
-                  : prev;
-              });
-            }
+            // 실제 도로망 거리를 받은 경우에만 상위 그룹을 실제 거리순으로 재정렬
+            const anyRealRoad = matrixRes.results.some((r) => r.isRealRoad);
+            const reordered = anyRealRoad
+              ? [
+                  ...withReal
+                    .slice(0, REAL_ROUTE_TOP_N)
+                    .sort((a, b) => (a.realDistanceMeters ?? a.distanceMeters) - (b.realDistanceMeters ?? b.distanceMeters)),
+                  ...withReal.slice(REAL_ROUTE_TOP_N),
+                ]
+              : withReal;
+
+            setFacilities(reordered);
+            setSelectedFacility((prev) => {
+              // 사용자가 직접 고른 시설은 유지하고, 아니면 실제로 가장 가까운 시설로 교체
+              if (!userPickedFacilityRef.current) return reordered[0];
+              return reordered.find((f) => f.id === prev?.id) || prev;
+            });
           });
         }
       }
@@ -290,6 +365,21 @@ export default function App() {
     if (coords.lat && coords.lon) {
       loadFacilities(coords.lat, coords.lon, category);
     }
+  }, [coords.lat, coords.lon, category, loadFacilities]);
+
+  // 네트워크 연결 상태 추적: 다시 연결되면 최신 시설 정보를 자동으로 다시 불러옴
+  useEffect(() => {
+    const handleOnline = () => {
+      setIsOnline(true);
+      if (coords.lat && coords.lon) loadFacilities(coords.lat, coords.lon, category);
+    };
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
   }, [coords.lat, coords.lon, category, loadFacilities]);
 
   // 🌟 [5] '지금 개방' 필터 적용된 최종 목록 (알 수 없음(null)은 개방으로 취급하지 않고 확실한 true만 필터링)
@@ -396,6 +486,7 @@ export default function App() {
     setNavTarget(null);
     setNavData(null);
     setNavPosition(null);
+    offRouteSinceRef.current = null;
     showToast('길안내를 종료했습니다.');
   };
 
@@ -409,6 +500,59 @@ export default function App() {
     );
     return () => navigator.geolocation.clearWatch(watchId);
   }, [isNavigating]);
+
+  // 🌟 경로 이탈 시 자동 재탐색: 경로에서 50m 이상 벗어난 상태가 5초 이상 이어지면 현재 위치에서 경로를 다시 요청
+  // (직선 폴백 경로일 때는 30초마다 실제 도보 경로를 다시 시도)
+  const offRouteSinceRef = useRef(null);
+  const lastRerouteAtRef = useRef(0);
+  const isReroutingRef = useRef(false);
+  const navTargetIdRef = useRef(null);
+  navTargetIdRef.current = navTarget?.id ?? null;
+
+  useEffect(() => {
+    if (!isNavigating || !navPosition || !navTarget || !navData?.coordinates?.length) return;
+
+    const now = Date.now();
+    const isFallbackRoute = navData.isRealRoad === false;
+
+    if (!isFallbackRoute) {
+      const minDist = Math.min(
+        ...navData.coordinates.map((pt) =>
+          getDistanceMeters(navPosition.lat, navPosition.lon, pt.lat, pt.lng)
+        )
+      );
+      if (minDist <= OFF_ROUTE_METERS) {
+        offRouteSinceRef.current = null;
+        return;
+      }
+      if (!offRouteSinceRef.current) {
+        offRouteSinceRef.current = now;
+        return;
+      }
+      if (now - offRouteSinceRef.current < OFF_ROUTE_GRACE_MS) return;
+    }
+
+    const minInterval = isFallbackRoute ? 30000 : 15000;
+    if (isReroutingRef.current || now - lastRerouteAtRef.current < minInterval) return;
+
+    isReroutingRef.current = true;
+    lastRerouteAtRef.current = now;
+    const targetId = navTarget.id;
+
+    fetchPedestrianDirections(
+      { lat: navPosition.lat, lon: navPosition.lon },
+      { lat: navTarget.lat, lon: navTarget.lon }
+    ).then((res) => {
+      isReroutingRef.current = false;
+      // 응답 도착 전에 길안내가 종료되었거나 목적지가 바뀌었으면 무시
+      if (navTargetIdRef.current !== targetId) return;
+      if (res.success && res.isRealRoad) {
+        setNavData(res);
+        offRouteSinceRef.current = null;
+        showToast(isFallbackRoute ? '🚶 실제 도보 경로를 찾았어요.' : '🔄 현재 위치에서 경로를 다시 찾았어요.');
+      }
+    });
+  }, [isNavigating, navPosition, navTarget, navData, showToast]);
 
   // 🌟 핵심: 지도를 드래그했을 때 '내 위치'는 건드리지 않고 카메라 중심만 기록
   const handleCameraMove = useCallback((newCenter) => {
@@ -433,10 +577,15 @@ export default function App() {
       {/* 1. 전체 화면 지도 */}
       <MapView
         isLoaded={isKakaoLoaded}
+        unavailableMessage={
+          !isKakaoLoaded && (kakaoError || !isOnline)
+            ? '지도를 불러올 수 없어요. 아래 목록의 거리·방향을 참고해 이동하세요.'
+            : null
+        }
         userCoords={(isNavigating && navPosition) || coords}
         facilities={displayedFacilities}
         selectedFacility={activeFacility}
-        onSelectFacility={(fac) => setSelectedFacility(fac)}
+        onSelectFacility={handleUserSelectFacility}
         navRouteCoordinates={navData?.coordinates || null}
         onCameraMove={handleCameraMove}
         onRequestGps={() => {
@@ -488,8 +637,8 @@ export default function App() {
           isNearest={activeFacility?.id === displayedFacilities[0]?.id}
           onStartNavigation={handleStartNavigation}
           onOpenCpr={() => setShowCprModal(true)}
-          onOpenAudit={() => setShowAuditModal(true)}
-          onSelectFacility={(fac) => setSelectedFacility(fac)}
+          onOpenAudit={ENABLE_FIELD_AUDIT ? () => setShowAuditModal(true) : undefined}
+          onSelectFacility={handleUserSelectFacility}
           openAedAlternative={openAedAlternative}
           isExpanded={isCardExpanded}
           onToggleExpand={() => setIsCardExpanded((prev) => !prev)}
@@ -497,6 +646,7 @@ export default function App() {
           locationError={locationError}
           onRetryLocation={() => requestGps(true)}
           isCachedView={isCachedView}
+          isOfflineView={isOfflineView}
         />
       )}
 

@@ -1,10 +1,18 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Volume2, VolumeX, ShieldAlert, Heart, Play, Pause } from 'lucide-react';
+import { X, Volume2, VolumeX, ShieldAlert, Heart, Play, Pause, Wind } from 'lucide-react';
+
+const BPM = 105;
+const BEAT_SEC = 60 / BPM;
+const COMPRESSIONS_PER_CYCLE = 30;
+const SCHEDULE_AHEAD_SEC = 0.12; // 이만큼 앞의 박자까지 미리 예약
+const SCHEDULER_TICK_MS = 25;
+const BREATH_CUE_MS = 4000;
 
 /**
  * 🫀 105 BPM 심폐소생술(CPR) 메트로놈 & 선한 사마리아인 법적 보호 모달
- * - AHA/ERC 권고 기준 분당 100~120회 (기본 105 BPM) 리듬 시각/청각 피드백
- * - Web Audio API를 활용한 무지연 전자 비프음
+ * - AHA/ERC 권고 기준 분당 100~120회 (기본 105 BPM) 리듬 시각/청각/진동 피드백
+ * - 오디오 시계(AudioContext.currentTime)에 박자를 미리 예약해, 화면이 바빠도 박자가 밀리지 않음
+ * - 30회 압박마다 인공호흡 안내 (교육받지 않은 경우 가슴압박만 계속하도록 안내)
  * - 응급의료법 제5조의2 면책 조항 명시로 일반인의 구조 심리 장벽 해소
  */
 export default function CprMetronomeModal({ isOpen, onClose }) {
@@ -12,55 +20,94 @@ export default function CprMetronomeModal({ isOpen, onClose }) {
   const [isMuted, setIsMuted] = useState(false);
   const [beatCount, setBeatCount] = useState(0);
   const [pulseActive, setPulseActive] = useState(false);
+  const [showBreathCue, setShowBreathCue] = useState(false);
 
   const audioCtxRef = useRef(null);
-  const intervalRef = useRef(null);
+  const isMutedRef = useRef(isMuted);
+  isMutedRef.current = isMuted;
 
-  // Web Audio 비프음 재생
-  const playBeep = () => {
-    if (isMuted) return;
+  useEffect(() => {
+    if (!isOpen || !isPlaying) return;
+
+    const timers = new Set();
+    const later = (fn, ms) => {
+      const id = setTimeout(() => {
+        timers.delete(id);
+        fn();
+      }, Math.max(0, ms));
+      timers.add(id);
+    };
+
+    // 박자 1회의 화면 깜빡임·카운트·진동
+    let count = 0;
+    const onBeat = () => {
+      count = (count % COMPRESSIONS_PER_CYCLE) + 1;
+      setBeatCount(count);
+      setPulseActive(true);
+      later(() => setPulseActive(false), 140);
+      if (navigator.vibrate) navigator.vibrate(40);
+      if (count === COMPRESSIONS_PER_CYCLE) {
+        setShowBreathCue(true);
+        later(() => setShowBreathCue(false), BREATH_CUE_MS);
+      }
+    };
+
+    let ctx = null;
     try {
       if (!audioCtxRef.current) {
         audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)();
       }
-      if (audioCtxRef.current.state === 'suspended') {
-        audioCtxRef.current.resume();
-      }
-      const osc = audioCtxRef.current.createOscillator();
-      const gain = audioCtxRef.current.createGain();
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(800, audioCtxRef.current.currentTime);
-      gain.gain.setValueAtTime(0.3, audioCtxRef.current.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, audioCtxRef.current.currentTime + 0.08);
-      osc.connect(gain);
-      gain.connect(audioCtxRef.current.destination);
-      osc.start();
-      osc.stop(audioCtxRef.current.currentTime + 0.08);
+      ctx = audioCtxRef.current;
+      if (ctx.state === 'suspended') ctx.resume();
     } catch (e) {
-      // AudioContext 제한 무시
-    }
-  };
-
-  useEffect(() => {
-    if (!isOpen || !isPlaying) {
-      if (intervalRef.current) clearInterval(intervalRef.current);
-      return;
+      ctx = null;
     }
 
-    // 105 BPM = 60000 / 105 = 571.4ms
-    const intervalMs = Math.round(60000 / 105);
+    // 오디오 미지원 환경: 일반 타이머로 화면·진동 박자만 제공
+    if (!ctx) {
+      const id = setInterval(onBeat, BEAT_SEC * 1000);
+      return () => {
+        clearInterval(id);
+        timers.forEach(clearTimeout);
+      };
+    }
 
-    intervalRef.current = setInterval(() => {
-      setBeatCount((prev) => (prev % 30) + 1); // 30회 압박 주기 카운트
-      setPulseActive(true);
-      playBeep();
-      setTimeout(() => setPulseActive(false), 140);
-    }, intervalMs);
+    let nextBeatTime = ctx.currentTime + 0.05;
+    const scheduleBeep = (time) => {
+      if (isMutedRef.current) return;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(800, time);
+      gain.gain.setValueAtTime(0.3, time);
+      gain.gain.exponentialRampToValueAtTime(0.001, time + 0.08);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(time);
+      osc.stop(time + 0.08);
+    };
+
+    const scheduler = setInterval(() => {
+      while (nextBeatTime < ctx.currentTime + SCHEDULE_AHEAD_SEC) {
+        scheduleBeep(nextBeatTime);
+        later(onBeat, (nextBeatTime - ctx.currentTime) * 1000);
+        nextBeatTime += BEAT_SEC;
+      }
+    }, SCHEDULER_TICK_MS);
 
     return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
+      clearInterval(scheduler);
+      timers.forEach(clearTimeout);
     };
-  }, [isOpen, isPlaying, isMuted]);
+  }, [isOpen, isPlaying]);
+
+  // 모달을 닫으면 카운트·안내 초기화
+  useEffect(() => {
+    if (!isOpen) {
+      setBeatCount(0);
+      setShowBreathCue(false);
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -87,6 +134,17 @@ export default function CprMetronomeModal({ isOpen, onClose }) {
             <div className="v2-cpr-sub">/ 30회 압박</div>
           </div>
         </div>
+
+        {/* 30회 압박 완료 시 인공호흡 안내 */}
+        {showBreathCue && (
+          <div className="v2-cpr-breath-cue" role="status">
+            <Wind size={18} />
+            <div>
+              <strong>30회 완료 · 인공호흡 2회</strong>
+              <span>교육받지 않았다면 인공호흡 없이 가슴압박만 계속하세요.</span>
+            </div>
+          </div>
+        )}
 
         {/* 1줄 행동 수칙 */}
         <div className="v2-cpr-instruction">
