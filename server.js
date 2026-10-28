@@ -451,6 +451,102 @@ async function geocodeAddress(address, orgName = '', centerLat = null, centerLon
   return null;
 }
 
+// 🌟 상세위치(buildPlace)에서 관리사무소, 동, 별관 등 독립 건물 키워드 추출
+function extractSubKeyword(buildPlace) {
+  if (!buildPlace) return null;
+  const dongMatch = buildPlace.match(/(\d{1,4}\s*동)/);
+  if (dongMatch) return dongMatch[1].replace(/\s+/g, '');
+  if (/관리사무[소|실]|관리실/.test(buildPlace)) return '관리사무소';
+  if (/경로당|노인정/.test(buildPlace)) return '경로당';
+  if (/어린이집/.test(buildPlace)) return '어린이집';
+  if (/별관/.test(buildPlace)) return '별관';
+  if (/신관/.test(buildPlace)) return '신관';
+  if (/커뮤니티센터|주민공동시설/.test(buildPlace)) return '커뮤니티센터';
+  return null;
+}
+
+const REGION_WORDS = new Set(['서울', '경기', '성남', '분당', '수지', '기흥', '일산', '인천', '수원', '용인', '서현', '이매', '수내', '판교', '야탑', '정자']);
+const GENERIC_BUILDING_WORDS = new Set(['아파트', '아파', '파트', '단지', '병원', '학교', '초등', '중학', '고등', '대학', '센터', '공원', '빌딩', '타워']);
+
+function hasStrictCommonKeyword(docName, orgName) {
+  const clean = orgName.replace(/\(주\)|주식회사/g, '').trim();
+  const publicOffices = ['구청', '시청', '보건소', '소방서', '경찰서', '주민센터', '행정복지센터'];
+  for (const po of publicOffices) {
+    if (clean.includes(po) && !docName.includes(po)) {
+      return null;
+    }
+  }
+
+  for (let len = Math.min(4, clean.length); len >= 2; len--) {
+    for (let i = 0; i <= clean.length - len; i++) {
+      const sub = clean.substring(i, i + len);
+      if (!REGION_WORDS.has(sub) && !GENERIC_BUILDING_WORDS.has(sub)) {
+        if (docName.includes(sub)) {
+          return sub;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+// 🌟 상세위치(관리사무소, ○○동, 별관 등) 기반 안전한 초정밀 세부 위치 보정
+async function geocodeSubLocation(orgName, buildPlace, baseLat, baseLon) {
+  const subKeyword = extractSubKeyword(buildPlace);
+  if (!subKeyword || !orgName) return null;
+
+  const cacheKey = `sub|${orgName}|${subKeyword}|${baseLat}|${baseLon}`;
+  if (aedGeocodeCache.has(cacheKey)) {
+    return aedGeocodeCache.get(cacheKey);
+  }
+
+  const kakaoKey = getKakaoRestApiKey();
+  if (!kakaoKey) return null;
+
+  const headers = {
+    Authorization: `KakaoAK ${kakaoKey}`,
+    KA: 'sdk/1.0.0 os/javascript lang/ko-KR res/1920x1080 device/pc origin/https://prompt-bismuth-avyohx5.vercel.app',
+    Origin: 'https://prompt-bismuth-avyohx5.vercel.app',
+  };
+
+  const cleanOrg = orgName.replace(/\(주\)|주식회사/g, '').trim();
+  const query = `${cleanOrg} ${subKeyword}`;
+  const url = `https://dapi.kakao.com/v2/local/search/keyword.json?query=${encodeURIComponent(query)}&y=${baseLat}&x=${baseLon}&radius=600`;
+
+  try {
+    const res = await fetch(url, { headers });
+    if (res.ok) {
+      const data = await res.json();
+      const docs = data.documents || [];
+
+      // 안전 검증: 기준 좌표 300m 이내, 세부 키워드 포함, 기관명 고유단어 일치
+      const matched = docs.find((d) => {
+        const dLat = parseFloat(d.y);
+        const dLon = parseFloat(d.x);
+        if (calculateDistanceMeters(baseLat, baseLon, dLat, dLon) > 300) return false;
+        if (!d.place_name.includes(subKeyword)) return false;
+        if (!hasStrictCommonKeyword(d.place_name, cleanOrg)) return false;
+        return true;
+      });
+
+      if (matched) {
+        const result = {
+          lat: parseFloat(matched.y),
+          lon: parseFloat(matched.x),
+          matchedName: matched.place_name,
+          subKeyword,
+          source: 'KAKAO_SUB_LOCATION',
+        };
+        aedGeocodeCache.set(cacheKey, result);
+        return result;
+      }
+    }
+  } catch (err) {}
+
+  aedGeocodeCache.set(cacheKey, null);
+  return null;
+}
+
 // 실시간 AED 공공데이터 조회
 async function fetchAEDData(lat, lon) {
   const serviceKey = getDataGoKrKey();
@@ -669,13 +765,28 @@ app.get(['/api/facilities', '/facilities'], async (req, res) => {
               }
             }
 
-            // 🌟 [위치 보정 복구] 도로명/건물 지오코딩 교차 검증 및 정밀 위치 보정 적용
+            // 🌟 [정밀 위치 보정] 1단계: 상세위치(관리사무소, ○○동, 별관 등) 안전 보정 시도
             let finalLat = itemLat;
             let finalLon = itemLon;
             let locationConfidence = 'NORMAL';
             let calibrationOffsetMeters = 0;
+            let matchedPlaceName = null;
+            let calibrationType = null;
 
-            if (raw.buildAddress || raw.org) {
+            let subGeocoded = null;
+            if (raw.org && raw.buildPlace) {
+              subGeocoded = await geocodeSubLocation(raw.org, raw.buildPlace, itemLat, itemLon);
+            }
+
+            if (subGeocoded && !isNaN(subGeocoded.lat) && !isNaN(subGeocoded.lon)) {
+              finalLat = subGeocoded.lat;
+              finalLon = subGeocoded.lon;
+              locationConfidence = 'CALIBRATED';
+              matchedPlaceName = subGeocoded.matchedName;
+              calibrationType = 'SUB_LOCATION';
+              calibrationOffsetMeters = calculateDistanceMeters(itemLat, itemLon, finalLat, finalLon);
+            } else if (raw.buildAddress || raw.org) {
+              // 2단계: 일반 도로명/건물 지오코딩 보정
               const geocoded = await geocodeAddress(raw.buildAddress, raw.org, itemLat, itemLon);
               if (geocoded && !isNaN(geocoded.lat) && !isNaN(geocoded.lon)) {
                 const diffMeters = calculateDistanceMeters(itemLat, itemLon, geocoded.lat, geocoded.lon);
@@ -687,6 +798,8 @@ app.get(['/api/facilities', '/facilities'], async (req, res) => {
                   finalLat = geocoded.lat;
                   finalLon = geocoded.lon;
                   locationConfidence = 'CALIBRATED';
+                  matchedPlaceName = geocoded.matchedName || geocoded.matchedAddr;
+                  calibrationType = 'BUILDING';
                 } else if (diffMeters >= 5000) {
                   locationConfidence = 'CHECK_NEEDED';
                 }
@@ -701,6 +814,8 @@ app.get(['/api/facilities', '/facilities'], async (req, res) => {
               categoryName: '자동심장충격기 (AED)',
               locationConfidence,
               calibrationOffsetMeters,
+              calibrationType,
+              matchedPlaceName,
               rawLat: itemLat,
               rawLon: itemLon,
               available24h,

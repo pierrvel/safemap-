@@ -305,13 +305,18 @@ export default function EmergencyBottomCard({
               </span>
             )}
 
-            {/* 🌟 자체 위치 자동 보정 배지 */}
+            {/* 🌟 자체 위치 자동 보정 배지 (상세 위치 및 건물 기준) */}
             {isCalibrated && (
               <span
                 className="v2-tag-status calibrated"
-                title="건물 위치 기준 좌표입니다"
+                title={facility.matchedPlaceName ? `${facility.matchedPlaceName} 기준 위치 보정 완료` : '건물 위치 기준 좌표입니다'}
               >
-                <Sparkles size={11} /> 위치 자동 보정됨
+                <Sparkles size={11} />{' '}
+                {facility.matchedPlaceName
+                  ? facility.matchedPlaceName.length > 13
+                    ? `${facility.matchedPlaceName.slice(0, 13)}… 보정됨`
+                    : `${facility.matchedPlaceName} 보정됨`
+                  : '위치 자동 보정됨'}
               </span>
             )}
 
