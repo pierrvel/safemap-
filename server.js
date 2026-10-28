@@ -369,6 +369,108 @@ function calculateAedOperatingInfo(item) {
 
 // 인메모리 지오코딩 캐시 (동일 주소/기관명 반복 조회 방지 및 초고속 0ms 응답 보장)
 const aedGeocodeCache = new Map();
+const regionCache = new Map();
+
+// 🌟 위경도 기준 광역 행정구역(시·도 / 시·군·구 / 읍·면·동) 조회 및 캐싱
+async function getRegionInfo(lat, lon) {
+  if (isNaN(lat) || isNaN(lon)) return null;
+  const gridKey = `${lat.toFixed(2)}_${lon.toFixed(2)}`;
+  if (regionCache.has(gridKey)) {
+    return regionCache.get(gridKey);
+  }
+
+  const kakaoKey = getKakaoRestApiKey();
+  if (!kakaoKey) return null;
+
+  const headers = {
+    Authorization: `KakaoAK ${kakaoKey}`,
+    KA: 'sdk/1.0.0 os/javascript lang/ko-KR res/1920x1080 device/pc origin/https://prompt-bismuth-avyohx5.vercel.app',
+    Origin: 'https://prompt-bismuth-avyohx5.vercel.app',
+  };
+
+  try {
+    const url = `https://dapi.kakao.com/v2/local/geo/coord2regioncode.json?x=${lon}&y=${lat}`;
+    const res = await fetch(url, { headers });
+    if (res.ok) {
+      const data = await res.json();
+      const doc = data.documents?.find(d => d.region_type === 'B') || data.documents?.[0];
+      if (doc) {
+        const info = {
+          sido: doc.region_1depth_name,
+          sigungu: doc.region_2depth_name,
+          dong: doc.region_3depth_name,
+        };
+        regionCache.set(gridKey, info);
+        return info;
+      }
+    }
+  } catch (e) {}
+
+  regionCache.set(gridKey, null);
+  return null;
+}
+
+function normalizeSido(str) {
+  if (!str) return '';
+  if (/^서울/.test(str)) return '서울';
+  if (/^경기/.test(str)) return '경기';
+  if (/^인천/.test(str)) return '인천';
+  if (/^강원/.test(str)) return '강원';
+  if (/^부산/.test(str)) return '부산';
+  if (/^대구/.test(str)) return '대구';
+  if (/^광주/.test(str)) return '광주';
+  if (/^대전/.test(str)) return '대전';
+  if (/^울산/.test(str)) return '울산';
+  if (/^세종/.test(str)) return '세종';
+  if (/^충[청]?북/.test(str)) return '충북';
+  if (/^충[청]?남/.test(str)) return '충남';
+  if (/^전[라]?북/.test(str)) return '전북';
+  if (/^전[라]?남/.test(str)) return '전남';
+  if (/^경[상]?북/.test(str)) return '경북';
+  if (/^경[상]?남/.test(str)) return '경남';
+  if (/^제주/.test(str)) return '제주';
+  return str;
+}
+
+function parseAddrRegion(addr) {
+  if (!addr) return null;
+  const tokens = addr.trim().split(/\s+/);
+  if (tokens.length === 0) return null;
+  return {
+    sido: normalizeSido(tokens[0]),
+    sigungu: tokens[1] || '',
+  };
+}
+
+// 🌟 주소 텍스트와 검색 중심 위치 간의 명백한 광역 행정구역 충돌(오염 데이터) 검사
+function isRegionalConflict(addr, centerSido, centerSigungu) {
+  const parsed = parseAddrRegion(addr);
+  if (!parsed || !parsed.sido) return false;
+
+  const cSido = normalizeSido(centerSido);
+  if (!cSido) return false;
+
+  if (cSido === '서울') {
+    // 서울 검색 시 타 광역시/도(부산, 대구, 광주, 강원 등)는 무조건 불일치
+    if (parsed.sido !== '서울' && parsed.sido !== '경기' && parsed.sido !== '인천') {
+      return true;
+    }
+    // 경기도 시설인 경우, 서울 인접 시/군이 아니면 원거리 불일치(여주, 이천, 안성, 평택 등)
+    if (parsed.sido === '경기') {
+      const isFarGyeonggi = /여주|이천|안성|평택|가평|양평|연천|포천|동두천/.test(parsed.sigungu);
+      if (isFarGyeonggi) return true;
+    }
+  } else if (cSido === '경기') {
+    if (parsed.sido !== '경기' && parsed.sido !== '서울' && parsed.sido !== '인천') {
+      return true;
+    }
+  } else {
+    if (parsed.sido !== cSido) {
+      return true;
+    }
+  }
+  return false;
+}
 
 // 공공데이터포털 등록 좌표의 지번/필지 오차 교차 검증 및 지오코딩 보정 함수
 async function geocodeAddress(address, orgName = '', centerLat = null, centerLon = null) {
@@ -424,22 +526,34 @@ async function geocodeAddress(address, orgName = '', centerLat = null, centerLon
       }
     }
 
-    // 2. 도로명/지번 정밀 주소 지오코딩 검색 (상세 건물 필지 중심)
+    // 2. 도로명/지번 정밀 주소 지오코딩 검색 (점진적 폴백: 전체 도로명 -> 건물번호 제외 도로명 -> 읍면동)
     if (cleanAddr) {
-      const addrUrl = `https://dapi.kakao.com/v2/local/search/address.json?query=${encodeURIComponent(cleanAddr)}`;
-      const addrRes = await fetch(addrUrl, { headers });
-      if (addrRes.ok) {
-        const addrData = await addrRes.json();
-        if (addrData.documents && addrData.documents.length > 0) {
-          const doc = addrData.documents[0];
-          const res = {
-            lat: parseFloat(doc.y),
-            lon: parseFloat(doc.x),
-            source: 'KAKAO_ADDRESS',
-            matchedAddr: doc.address_name,
-          };
-          aedGeocodeCache.set(cacheKey, res);
-          return res;
+      const candidates = [cleanAddr];
+      const withoutBno = cleanAddr.replace(/\s+\d+(?:-\d+)?$/, '').trim();
+      if (withoutBno && withoutBno !== cleanAddr) {
+        candidates.push(withoutBno);
+      }
+      const dongMatch = cleanAddr.match(/^(?:[가-힣]+(?:시|도)\s+)?(?:[가-힣]+(?:시|군|구)\s+)?(?:[가-힣0-9]+(?:읍|면|동|가))/);
+      if (dongMatch && !candidates.includes(dongMatch[0])) {
+        candidates.push(dongMatch[0]);
+      }
+
+      for (const query of candidates) {
+        const addrUrl = `https://dapi.kakao.com/v2/local/search/address.json?query=${encodeURIComponent(query)}`;
+        const addrRes = await fetch(addrUrl, { headers });
+        if (addrRes.ok) {
+          const addrData = await addrRes.json();
+          if (addrData.documents && addrData.documents.length > 0) {
+            const doc = addrData.documents[0];
+            const res = {
+              lat: parseFloat(doc.y),
+              lon: parseFloat(doc.x),
+              source: 'KAKAO_ADDRESS',
+              matchedAddr: doc.address_name,
+            };
+            aedGeocodeCache.set(cacheKey, res);
+            return res;
+          }
         }
       }
     }
@@ -736,6 +850,9 @@ app.get(['/api/facilities', '/facilities'], async (req, res) => {
 
     let allFacilities = [];
 
+    // 사용자 현재/검색 위치 기준 광역 행정구역 정보 (시·도 / 시·군·구) 조회
+    const centerRegion = await getRegionInfo(lat, lon);
+
     // 1. AED 데이터 수집 (실제 공공데이터포털 API 연동)
     if (categoryFilter === 'all' || categoryFilter === 'aed') {
       try {
@@ -749,6 +866,14 @@ app.get(['/api/facilities', '/facilities'], async (req, res) => {
 
             // [전처리 1: 좌표 결측치 및 비정상 좌표 필터링]
             if (isNaN(itemLat) || isNaN(itemLon) || itemLat < 33 || itemLat > 39 || itemLon < 124 || itemLon > 132) {
+              stats.invalidCoordsRemoved++;
+              return null;
+            }
+
+            // 🌟 [행정구역 광역 교차 검증]
+            // 공공데이터 원천 좌표 오류로 인해 타 광역지역(예: 경기도 여주시 시설이 서울 마포구 양화로로 등록됨)의
+            // 데이터가 검색 좌표에 잘못 걸려든 경우를 원천 차단
+            if (centerRegion && isRegionalConflict(raw.buildAddress, centerRegion.sido, centerRegion.sigungu)) {
               stats.invalidCoordsRemoved++;
               return null;
             }
@@ -808,7 +933,6 @@ app.get(['/api/facilities', '/facilities'], async (req, res) => {
                 calibrationOffsetMeters = diffMeters;
 
                 // 70m 이상 편차 발생 시 공공데이터의 지번/필지 오차로 판별하여 도로명/건물 정밀좌표로 보정
-                // 단, 5km 이상 심한 괴리는 타지역 동명 시설 오매칭 방지를 위해 원본 유지 및 확인 필요 상태 부여
                 if (diffMeters >= 70 && diffMeters < 5000) {
                   finalLat = geocoded.lat;
                   finalLon = geocoded.lon;
@@ -816,12 +940,26 @@ app.get(['/api/facilities', '/facilities'], async (req, res) => {
                   matchedPlaceName = geocoded.matchedName || geocoded.matchedAddr;
                   calibrationType = 'BUILDING';
                 } else if (diffMeters >= 5000) {
-                  locationConfidence = 'CHECK_NEEDED';
+                  // 🌟 공공데이터 원천 데이터의 좌표 오기재/오염 복원:
+                  // 텍스트 주소 지오코딩 결과로 좌표를 정상 복원하고, 이후 반경 검증에서 정상 필터링되도록 처리
+                  finalLat = geocoded.lat;
+                  finalLon = geocoded.lon;
+                  locationConfidence = 'CALIBRATED';
+                  matchedPlaceName = geocoded.matchedName || geocoded.matchedAddr;
+                  calibrationType = 'OUTLIER_RESTORED';
                 }
               }
             }
 
             const distMeters = calculateDistanceMeters(lat, lon, finalLat, finalLon);
+
+            // 🌟 [유효 반경 필터] AED 응급 탐색 반경(최대 5,000m = 5km) 초과 시설 배제
+            // (타지역에서 공공데이터 원천 오염으로 좌표가 튀어 딸려온 시설 및 원거리 시설 원천 차단)
+            const MAX_AED_RADIUS_METERS = 5000;
+            if (distMeters > MAX_AED_RADIUS_METERS) {
+              stats.invalidCoordsRemoved++;
+              return null;
+            }
 
             return {
               id: facilityId,
