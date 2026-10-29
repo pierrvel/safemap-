@@ -1,0 +1,17 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "design-system-font",
+        "value": "noto sans kr",
+        "files": [
+          ".impeccable/mocks/decision"
+        ],
+        "createdAt": "2026-10-29T10:01:21.546Z",
+        "reason": "Claude: decision-round sketches must use Google Fonts only (Pretendard is not on Google Fonts); spent mock files, not shipped UI"
+      }
+    ]
+  }
+}

@@ -1,5 +1,5 @@
-// 🫀 골든러너 119 PWA 서비스 워커 (Service Worker)
-const CACHE_NAME = 'goldenrunner-pwa-v3';
+// 세이프맵 PWA 서비스 워커
+const CACHE_NAME = 'safemap-pwa-v4';
 const STATIC_ASSETS = [
   '/',
   '/manifest.json',

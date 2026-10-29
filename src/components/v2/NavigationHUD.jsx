@@ -1,8 +1,5 @@
-import React, { useMemo, useState, useRef, useEffect } from 'react';
+import React, { useMemo, useState, useRef, useEffect, useLayoutEffect } from 'react';
 import {
-  Navigation,
-  X,
-  Phone,
   CornerUpLeft,
   CornerUpRight,
   ArrowUp,
@@ -10,14 +7,15 @@ import {
   RotateCw,
   Flag,
   Footprints,
-  AlertTriangle,
-  Building,
   Volume2,
   VolumeX,
+  Info,
 } from 'lucide-react';
 import { calculateDistanceMeters } from '../../utils/mapIcons';
+import { formatDistance, placeTitle, placeOwner } from '../../utils/format';
+import { CallButton, CprButton } from './EmergencyBottomCard';
 
-// 서버가 보내는 안내 기호를 앱 공통 선 아이콘으로 변환
+// 서버가 보내는 안내 기호를 선 아이콘으로 변환
 const STEP_ICONS = {
   '↰': CornerUpLeft,
   '↱': CornerUpRight,
@@ -36,7 +34,7 @@ const STEP_PHRASES = {
   '🎯': '목적지입니다',
 };
 
-const VOICE_PREF_KEY = 'goldenrunner_voice_guide';
+const VOICE_PREF_KEY = 'safemap_voice_guide';
 const VOICE_FAR_METERS = 150;
 const VOICE_NEAR_METERS = 25;
 const canSpeak = typeof window !== 'undefined' && 'speechSynthesis' in window;
@@ -44,10 +42,9 @@ const canSpeak = typeof window !== 'undefined' && 'speechSynthesis' in window;
 function speak(text) {
   if (!canSpeak || !text) return;
   try {
-    // 이전 안내가 끝난 뒤 이어서 읽도록 대기열에 추가
     const utter = new SpeechSynthesisUtterance(text);
     utter.lang = 'ko-KR';
-    utter.rate = 1.05;
+    utter.rate = 1.0;
     window.speechSynthesis.speak(utter);
   } catch (e) {
     // 음성 엔진 오류는 무시 (화면 안내는 계속)
@@ -57,7 +54,6 @@ function speak(text) {
 const ARRIVAL_RADIUS_METERS = 20;
 const OFF_ROUTE_METERS = 50;
 
-// 경로 좌표 중 주어진 위치에서 가장 가까운 점의 인덱스와 거리
 function findNearestIndex(path, lat, lon) {
   let bestIdx = 0;
   let bestDist = Infinity;
@@ -71,10 +67,14 @@ function findNearestIndex(path, lat, lon) {
   return { idx: bestIdx, dist: bestDist };
 }
 
-function formatDuration(seconds) {
-  const mins = Math.floor(seconds / 60);
-  if (mins === 0) return `약 ${Math.max(Math.round(seconds), 10)}초`;
-  return `약 ${mins}분`;
+function minutesText(seconds) {
+  return `약 ${Math.max(1, Math.round(seconds / 60))}분`;
+}
+
+// 서버 안내 문구에서 거리 반복을 덜어낸 짧은 문장
+function shortInstruction(step) {
+  if (!step?.instruction) return '경로를 따라 걸어가세요';
+  return step.instruction.replace(/\s*후\s*\d+m\s*이동/, '').replace(/\d+m\s*이동/, '이동');
 }
 
 export default function NavigationHUD({
@@ -82,13 +82,16 @@ export default function NavigationHUD({
   destination,
   currentPosition,
   onClose,
+  onOpenCpr,
+  onHeightChange,
+  onArrivedChange,
 }) {
+  const panelRef = useRef(null);
   const path = useMemo(
     () => (navData?.coordinates || []).filter((pt) => pt && pt.lat !== undefined && pt.lng !== undefined),
     [navData]
   );
 
-  // 경로 끝에서부터 각 좌표까지 남은 누적 거리
   const remainingFromIdx = useMemo(() => {
     const acc = new Array(path.length).fill(0);
     for (let i = path.length - 2; i >= 0; i--) {
@@ -97,7 +100,6 @@ export default function NavigationHUD({
     return acc;
   }, [path]);
 
-  // 각 턴바이턴 안내 지점이 경로 좌표의 몇 번째에 해당하는지
   const stepsWithIdx = useMemo(
     () =>
       (navData?.steps || [])
@@ -115,9 +117,18 @@ export default function NavigationHUD({
   });
   const announcedRef = useRef(new Set());
 
+  useLayoutEffect(() => {
+    if (!panelRef.current || !onHeightChange) return undefined;
+    const el = panelRef.current;
+    const report = () => onHeightChange(el.getBoundingClientRect().height);
+    report();
+    const ro = new ResizeObserver(report);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [onHeightChange]);
+
   const totalDist = navData?.distanceMeters ?? destination?.realDistanceMeters ?? destination?.distanceMeters ?? 0;
   const totalSec = navData?.durationSeconds ?? totalDist / 1.25;
-  // 경로상의 평균 보행 속도 (m/s)
   const speed = totalDist > 0 && totalSec > 0 ? totalDist / totalSec : 1.25;
 
   let remainingDist = totalDist;
@@ -140,16 +151,17 @@ export default function NavigationHUD({
   }
 
   const StepIcon = (nextStep && STEP_ICONS[nextStep.icon]) || Footprints;
+  const isAed = destination?.category !== 'shelter';
+  const where = placeTitle(destination);
 
-  // 🔊 음성 안내: 경로가 새로 잡히면(재탐색 포함) 안내 이력 초기화 후 출발 안내
+  // 경로가 새로 잡히면(재탐색 포함) 안내 이력 초기화 후 출발 안내
   useEffect(() => {
     announcedRef.current = new Set();
     if (!voiceOn || !navData || !destination) return;
-    speak(`${destination.name}까지 ${Math.round(totalDist)}미터, 길안내를 시작합니다.`);
+    speak(`${where}까지 ${Math.round(totalDist)}미터, 안내를 시작할게요.`);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navData]);
 
-  // 🔊 회전 지점 안내(멀리서 1회, 가까워지면 1회), 경로 이탈, 도착
   const nextStepKey = nextStep ? `${nextStep.stepIndex}` : null;
   const nextStepPhrase = nextStep ? STEP_PHRASES[nextStep.icon] : null;
   useEffect(() => {
@@ -161,11 +173,11 @@ export default function NavigationHUD({
     };
 
     if (hasArrived) {
-      announce('arrive', `목적지에 도착했습니다. ${destination.buildPlace || ''}`.trim());
+      announce('arrive', isAed ? `도착했어요. ${where}에서 AED를 꺼내 주세요.` : `도착했어요. ${where}입니다.`);
       return;
     }
     if (isOffRoute) {
-      announce(`offroute-${navData?.distanceMeters}`, '경로를 벗어났습니다.');
+      announce(`offroute-${navData?.distanceMeters}`, '경로를 벗어났어요. 길을 다시 찾을게요.');
       return;
     }
     if (nextStepKey && nextStepPhrase && nextStepDist !== null) {
@@ -175,10 +187,13 @@ export default function NavigationHUD({
         announce(`${nextStepKey}-far`, `${Math.round(nextStepDist / 10) * 10}미터 앞에서 ${nextStepPhrase}`);
       }
     }
-  }, [voiceOn, destination, hasArrived, isOffRoute, nextStepKey, nextStepPhrase, nextStepDist, navData]);
+  }, [voiceOn, destination, hasArrived, isOffRoute, nextStepKey, nextStepPhrase, nextStepDist, navData, isAed, where]);
 
-  // 길안내 종료 시 읽던 음성 중단
   useEffect(() => () => window.speechSynthesis?.cancel(), []);
+
+  useEffect(() => {
+    onArrivedChange?.(hasArrived);
+  }, [hasArrived, onArrivedChange]);
 
   const toggleVoice = () => {
     setVoiceOn((prev) => {
@@ -196,86 +211,87 @@ export default function NavigationHUD({
   if (!destination) return null;
 
   return (
-    <div className="v2-nav-hud" role="region" aria-label="실시간 도보 내비게이션">
-      <div className="v2-hud-card">
-        {/* 상단 남은 거리 및 소요시간 */}
-        <div className="v2-hud-top">
-          <div className="v2-hud-eta-box">
-            {hasArrived ? (
-              <span className="v2-hud-eta-val">도착</span>
-            ) : (
-              <>
-                <span className="v2-hud-eta-val">{Math.round(remainingDist)}m</span>
-                <span className="v2-hud-eta-time">도보 {formatDuration(remainingDist / speed)}</span>
-              </>
-            )}
-          </div>
-
-          <div className="v2-hud-actions">
-            {canSpeak && (
-              <button
-                type="button"
-                className="v2-btn-hud-close"
-                onClick={toggleVoice}
-                title={voiceOn ? '음성 안내 끄기' : '음성 안내 켜기'}
-                aria-label={voiceOn ? '음성 안내 끄기' : '음성 안내 켜기'}
-              >
-                {voiceOn ? <Volume2 size={16} /> : <VolumeX size={16} />}
-              </button>
-            )}
-            <a href="tel:119" className="v2-btn-hud-119" title="119 통화">
-              <Phone size={15} />
-              <span>119</span>
-            </a>
+    <>
+      {!hasArrived && (
+        <div className="sm-nav-top" role="status" aria-live="polite">
+          <span className="sm-nav-turn" aria-hidden="true">
+            <StepIcon size={28} strokeWidth={2.2} />
+          </span>
+          <span style={{ flex: 1, minWidth: 0 }}>
+            <span className="sm-nav-step-dist">
+              {nextStepDist !== null ? formatDistance(nextStepDist) : formatDistance(remainingDist)}
+            </span>
+            <span className="sm-nav-step-text">{nextStep ? shortInstruction(nextStep) : '목적지 방향으로 걸어가세요'}</span>
+          </span>
+          {canSpeak && (
             <button
               type="button"
-              className="v2-btn-hud-close"
-              onClick={onClose}
-              title="길안내 종료"
+              className="sm-nav-voice"
+              onClick={toggleVoice}
+              aria-label={voiceOn ? '음성 안내 끄기' : '음성 안내 켜기'}
+              aria-pressed={voiceOn}
             >
-              <X size={18} />
-              <span>종료</span>
+              {voiceOn ? <Volume2 size={22} /> : <VolumeX size={22} />}
             </button>
-          </div>
+          )}
         </div>
+      )}
 
-        {/* 다음 턴바이턴 안내 */}
-        {!hasArrived && nextStep && (
-          <div className="v2-hud-next-step">
-            <span className="v2-hud-step-icon">
-              <StepIcon size={22} />
-            </span>
-            <span className="v2-hud-step-text">
-              {nextStepDist !== null && <small>{Math.round(nextStepDist)}m 앞</small>}
-              {nextStep.instruction}
-            </span>
-          </div>
+      <section ref={panelRef} className="sm-sheet" aria-label="길안내">
+        {hasArrived ? (
+          <>
+            <h2 className="sm-headline" style={{ marginTop: 12 }}>
+              {isAed ? <>도착했어요.<br />이제 AED를 꺼내 주세요</> : '대피소에 도착했어요'}
+            </h2>
+            <div className="sm-place" style={{ cursor: 'default' }}>
+              <span className="sm-place-body">
+                <span className="sm-place-title">{where}</span>
+                {placeOwner(destination) && <span className="sm-place-meta">{placeOwner(destination)}</span>}
+              </span>
+            </div>
+            {isAed ? (
+              <ol className="sm-steps">
+                <li><div><strong>보관함 문을 열고 AED를 꺼내요</strong><span>경보음이 울릴 수 있어요. 괜찮아요.</span></div></li>
+                <li><div><strong>환자 곁으로 돌아가요</strong><span>왔던 길로 돌아가면 돼요.</span></div></li>
+                <li><div><strong>뚜껑을 열거나 전원 버튼을 눌러요</strong></div></li>
+                <li><div><strong>AED 음성 안내를 그대로 따라요</strong></div></li>
+              </ol>
+            ) : (
+              <p className="sm-headline-sub">입구의 대피소 표지를 따라 안으로 들어가세요.</p>
+            )}
+            <div className="sm-actions">
+              <CallButton />
+              {isAed ? <CprButton onClick={onOpenCpr} /> : <span />}
+            </div>
+            <button type="button" className="sm-linkbtn" onClick={onClose}>안내 끝내기</button>
+          </>
+        ) : (
+          <>
+            <div style={{ marginTop: 8 }}>
+              <h2 className="sm-headline" style={{ fontSize: 22 }}>
+                <span className="sm-num">{formatDistance(remainingDist)}</span> 남았어요 · {minutesText(remainingDist / speed)}
+              </h2>
+              <p className="sm-headline-sub">{where}</p>
+            </div>
+            {(isOffRoute || navData?.isRealRoad === false) && (
+              <div className="sm-nav-warn" role="status">
+                <Info size={18} style={{ flex: 'none', marginTop: 2 }} aria-hidden="true" />
+                <span>
+                  {isOffRoute
+                    ? '경로에서 벗어났어요. 지금 위치에서 길을 다시 찾을게요.'
+                    : '걷는 길을 불러오지 못해 방향만 안내해요. 지도를 함께 봐 주세요.'}
+                </span>
+              </div>
+            )}
+            <div className="sm-actions">
+              <CallButton />
+              <button type="button" className="sm-btn-sec" style={{ height: 58 }} onClick={onClose}>
+                안내 끝내기
+              </button>
+            </div>
+          </>
         )}
-
-        {!hasArrived && isOffRoute && (
-          <div className="v2-hud-warning">
-            <AlertTriangle size={13} /> 경로에서 벗어났어요. 잠시 후 현재 위치에서 경로를 다시 찾습니다.
-          </div>
-        )}
-
-        {navData && navData.isRealRoad === false && (
-          <div className="v2-hud-warning">
-            <AlertTriangle size={13} /> 도보 경로를 불러오지 못해 직선 방향으로 안내합니다.
-          </div>
-        )}
-
-        {/* 목적지 및 상세 위치 안내 */}
-        <div className="v2-hud-dest">
-          <div className="v2-hud-dest-title">
-            <Navigation size={15} className="v2-hud-dest-icon" />
-            <span className="v2-hud-name">{destination.name}</span>
-          </div>
-          <div className="v2-hud-indoor-text">
-            <Building size={13} />
-            <span>{destination.buildPlace || destination.buildAddress || '상세 설치 위치로 이동하세요.'}</span>
-          </div>
-        </div>
-      </div>
-    </div>
+      </section>
+    </>
   );
 }

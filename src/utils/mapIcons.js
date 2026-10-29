@@ -12,181 +12,84 @@ export function calculateDistanceMeters(lat1, lon1, lat2, lon2) {
   return Math.round(R * c);
 }
 
-export function createCustomPinIcon(item, isNearest, isSelected) {
-  let bgColor = '#ef4444';
-  let iconEmoji = '⚡';
-  let catText = 'AED';
-  let badgeBg = '#dc2626';
+// 디자인 토큰 (src/safemap.css 와 같은 값)
+const AED_RED = '#E5304A';
+const AED_RED_SOFT = '#F3A6B0';
+const SHELTER_INK = '#333D4B';
+const SHELTER_SOFT = '#8B95A1';
+const USER_BLUE = '#3182F6';
 
-  if (item.category === 'shelter') {
-    bgColor = '#10b981'; // 상쾌하고 신뢰감 있는 에메랄드 그린
-    iconEmoji = '🏠';
-    catText = '대피소';
-    badgeBg = '#059669'; // 딥 그린 배지
-  }
+// 24x24 좌표계 아이콘 경로
+const HEART_PATH = 'M12 21s-7-4.35-9.5-9A5.5 5.5 0 0 1 12 6a5.5 5.5 0 0 1 9.5 6c-2.5 4.65-9.5 9-9.5 9z';
+const BOLT_PATH = 'M13 7.5l-3.5 5.5h3l-1.5 5 4.5-6.5h-3l1.5-4z';
+const SHIELD_PATH = 'M12 3l7 3v5c0 4.6-3 8.4-7 10-4-1.6-7-5.4-7-10V6z';
 
-  const strokeColor = isSelected ? '#2563eb' : (isNearest ? '#f59e0b' : '#ffffff');
-  const strokeWidth = isSelected ? 3.5 : (isNearest ? 3 : 2);
-  const scale = isNearest || isSelected ? 1.15 : 1.0;
-
-  const w = Math.round(36 * scale);
-  const h = Math.round(46 * scale);
-
-  const goldHalo = isNearest ? `<circle cx="18" cy="17" r="16" fill="none" stroke="#f59e0b" stroke-width="2.5" stroke-dasharray="3,2" />` : '';
-
-  const svg = `
-  <svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 36 46">
-    <defs>
-      <filter id="p-sh-${item.id}" x="-30%" y="-20%" width="160%" height="150%">
-        <feDropShadow dx="0" dy="3" stdDeviation="3" flood-color="#000000" flood-opacity="0.25"/>
-      </filter>
-    </defs>
-    ${goldHalo}
-    <path d="M 18 2 C 9.5 2, 3 8.8, 3 17.5 C 3 28, 18 44, 18 44 C 18 44, 33 28, 33 17.5 C 33 8.8, 26.5 2, 18 2 Z"
-          fill="${bgColor}" stroke="${strokeColor}" stroke-width="${strokeWidth}" filter="url(#p-sh-${item.id})" />
-    <circle cx="18" cy="16.5" r="9.5" fill="#ffffff" />
-    <text x="18" y="20.5" font-size="10.5" text-anchor="middle" font-family="'Apple Color Emoji','Segoe UI Emoji',sans-serif">${iconEmoji}</text>
-    <rect x="4" y="30.5" width="28" height="10" rx="5" fill="${badgeBg}" stroke="#ffffff" stroke-width="1" />
-    <text x="18" y="38" font-size="7" font-weight="900" fill="#ffffff" text-anchor="middle" font-family="'Pretendard', sans-serif">${catText}</text>
-  </svg>`.trim();
-
+function toMarkerImage(svg, size, offset) {
   return new window.kakao.maps.MarkerImage(
     'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg),
-    new window.kakao.maps.Size(w, h),
-    { offset: new window.kakao.maps.Point(w / 2, h) }
+    new window.kakao.maps.Size(size, size),
+    { offset: new window.kakao.maps.Point(offset.x, offset.y) }
   );
+}
+
+// 둥근 사각형 핀: 강조(선택·가장 가까움)는 크게 진한 색, 나머지는 작고 연하게
+function glyph(category, fg, bg, scale) {
+  const t = `translate(${12 - 12 * scale} ${12 - 12 * scale}) scale(${scale})`;
+  if (category === 'shelter') {
+    return `<g transform="${t}"><path d="${SHIELD_PATH}" fill="${fg}"/></g>`;
+  }
+  return `<g transform="${t}"><path d="${HEART_PATH}" fill="${fg}"/><path d="${BOLT_PATH}" fill="${bg}"/></g>`;
+}
+
+export function createCustomPinIcon(item, isNearest, isSelected) {
+  const isShelter = item.category === 'shelter';
+  const strong = isSelected || isNearest;
+  const fill = isShelter ? (strong ? SHELTER_INK : SHELTER_SOFT) : (strong ? AED_RED : AED_RED_SOFT);
+  // 화면 크기와 별개로 터치 영역은 넉넉히 확보 (선택되지 않은 시설은 작은 점)
+  const size = strong ? 60 : 36;
+  const box = strong ? 52 : 16;
+  const pad = (size - box) / 2;
+  const radius = strong ? 17 : 6;
+
+  const svg = `
+  <svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+    <rect x="${pad}" y="${pad + 1}" width="${box}" height="${box}" rx="${radius}" fill="#191F28" fill-opacity="0.18"/>
+    <rect x="${pad}" y="${pad}" width="${box}" height="${box}" rx="${radius}" fill="${fill}" stroke="#FFFFFF" stroke-width="${strong ? 3 : 2}"/>
+    ${strong ? `<svg x="${pad}" y="${pad}" width="${box}" height="${box}" viewBox="0 0 24 24">
+      ${glyph(item.category, '#FFFFFF', fill, 0.62)}
+    </svg>` : ''}
+  </svg>`.trim();
+
+  return toMarkerImage(svg, size, { x: size / 2, y: size / 2 });
 }
 
 export function createClusterPinIcon(cluster, isNearest) {
   const count = cluster.length;
-  const hasAed = cluster.some(f => f.category === 'aed');
-  const hasShelter = cluster.some(f => f.category === 'shelter');
-
-  let bgColor = '#7c3aed';
-  let emoji = '🏢';
-  if (hasAed && !hasShelter) {
-    bgColor = '#ef4444';
-    emoji = '⚡';
-  } else if (!hasAed && hasShelter) {
-    bgColor = '#f59e0b';
-    emoji = '🛡️';
-  }
-
-  const w = 40;
-  const h = 48;
-  const strokeColor = isNearest ? '#f59e0b' : '#ffffff';
+  const isShelter = cluster.every((f) => f.category === 'shelter');
+  const fill = isShelter ? (isNearest ? SHELTER_INK : SHELTER_SOFT) : (isNearest ? AED_RED : AED_RED_SOFT);
+  const size = 40;
+  const box = 26;
+  const pad = (size - box) / 2;
 
   const svg = `
-  <svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 40 48">
-    <defs>
-      <filter id="c-sh" x="-30%" y="-20%" width="160%" height="150%">
-        <feDropShadow dx="0" dy="2" stdDeviation="2.5" flood-color="#000000" flood-opacity="0.35"/>
-      </filter>
-    </defs>
-    <path d="M 20 2 C 10 2, 3 9, 3 18 C 3 29, 20 46, 20 46 C 20 46, 37 29, 37 18 C 37 9, 30 2, 20 2 Z"
-          fill="${bgColor}" stroke="${strokeColor}" stroke-width="${isNearest ? 3 : 2}" filter="url(#c-sh)" />
-    <circle cx="20" cy="17" r="11" fill="#ffffff" />
-    <text x="20" y="21" font-size="11" text-anchor="middle" font-family="'Apple Color Emoji','Segoe UI Emoji',sans-serif">${emoji}</text>
-    <rect x="7" y="32" width="26" height="11" rx="5.5" fill="#0f172a" stroke="#ffffff" stroke-width="1.2" />
-    <text x="20" y="40.5" font-size="7.5" font-weight="900" fill="#ffffff" text-anchor="middle" font-family="'Pretendard', sans-serif">${count}개소 밀집</text>
+  <svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+    <rect x="${pad}" y="${pad}" width="${box}" height="${box}" rx="9" fill="${fill}" stroke="#FFFFFF" stroke-width="2"/>
+    <text x="${size / 2}" y="${size / 2 + 4.5}" font-size="13" font-weight="700" fill="#FFFFFF" text-anchor="middle" font-family="Pretendard, -apple-system, sans-serif">${count}</text>
   </svg>`.trim();
 
-  return new window.kakao.maps.MarkerImage(
-    'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg),
-    new window.kakao.maps.Size(w, h),
-    { offset: new window.kakao.maps.Point(w / 2, h) }
-  );
+  return toMarkerImage(svg, size, { x: size / 2, y: size / 2 });
 }
 
 export function createUserLocationIcon() {
-  const size = 52;
+  const size = 48;
   const svg = `
-  <svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 52 52">
-    <defs>
-      <filter id="u-glow" x="-30%" y="-30%" width="160%" height="160%">
-        <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#2563eb" flood-opacity="0.3"/>
-      </filter>
-    </defs>
-    <!-- Outer radar ripple -->
-    <circle cx="26" cy="26" r="24" fill="#3b82f6" fill-opacity="0.16" />
-    <circle cx="26" cy="26" r="16" fill="#3b82f6" fill-opacity="0.25" stroke="#60a5fa" stroke-width="1.2" stroke-opacity="0.5" />
-    <!-- Core Blue Dot with white border -->
-    <circle cx="26" cy="26" r="8.5" fill="#2563eb" stroke="#ffffff" stroke-width="2.5" filter="url(#u-glow)" />
-    <circle cx="26" cy="26" r="3" fill="#ffffff" />
+  <svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 48 48">
+    <circle cx="24" cy="24" r="22" fill="${USER_BLUE}" fill-opacity="0.16"/>
+    <circle cx="24" cy="25" r="10" fill="#191F28" fill-opacity="0.16"/>
+    <circle cx="24" cy="24" r="10" fill="${USER_BLUE}" stroke="#FFFFFF" stroke-width="4"/>
   </svg>`.trim();
 
-  return new window.kakao.maps.MarkerImage(
-    'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg),
-    new window.kakao.maps.Size(size, size),
-    { offset: new window.kakao.maps.Point(size / 2, size / 2) }
-  );
-}
-
-export function createFloatingPillContent(item) {
-  const place = item.buildPlace || item.buildAddress || item.name;
-  const isCalibrated = item.locationConfidence === 'CALIBRATED';
-  const isEstimated = item.locationConfidence === 'ESTIMATED';
-  const dotEmoji = isCalibrated ? '🔵' : (isEstimated ? '🟡' : '🟢');
-
-  return `
-    <div style="
-      display: inline-flex;
-      align-items: center;
-      gap: 5px;
-      padding: 5px 11px;
-      background: #0f172a;
-      color: #ffffff;
-      border-radius: 9999px;
-      font-size: 11.5px;
-      font-weight: 700;
-      white-space: nowrap;
-      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
-      border: 1.5px solid #38bdf8;
-      pointer-events: none;
-      transform: translateY(-8px);
-    ">
-      <span>${dotEmoji}</span>
-      <span style="max-width: 190px; overflow: hidden; text-overflow: ellipsis;">${place}</span>
-    </div>
-  `.trim();
-}
-
-export function createInfoWindowContent(item, isNearest) {
-  let catIcon = '⚡';
-  let catText = '자동심장충격기 (AED)';
-  let catBg = '#fee2e2';
-  let catColor = '#dc2626';
-
-  if (item.category === 'shelter') {
-    catIcon = '🏠';
-    catText = '대피소';
-    catBg = '#d1fae5';
-    catColor = '#059669';
-  }
-
-  const distM = item.realDistanceMeters || item.distanceMeters || 0;
-  const timeTxt = item.realDurationText || item.walkingTime || '';
-
-  return `
-    <div style="font-family: Pretendard, -apple-system, sans-serif; padding: 6px 4px; max-width: 250px; line-height: 1.45;">
-      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; gap: 6px;">
-        <span style="font-size: 10px; font-weight: 800; padding: 2px 7px; border-radius: 6px; background: ${catBg}; color: ${catColor};">
-          ${catIcon} ${catText}
-        </span>
-        ${isNearest ? '<span style="font-size: 10px; font-weight: 800; color: #d97706; background: #fef3c7; padding: 2px 6px; border-radius: 6px;">최단거리</span>' : ''}
-      </div>
-      <div style="font-size: 13px; font-weight: 800; color: #0f172a; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-        ${item.name || '안전시설'}
-      </div>
-      <div style="font-size: 11.5px; color: #2563eb; font-weight: 700; margin-bottom: 5px;">
-        🏢 ${item.buildPlace || item.buildAddress || '위치 상세 정보 없음'}
-      </div>
-      <div style="font-size: 11px; color: #475569; display: flex; align-items: center; justify-content: space-between; border-top: 1px solid #f1f5f9; padding-top: 4px;">
-        <span>도보 <strong>${distM}m</strong></span>
-        <span>${timeTxt}</span>
-      </div>
-    </div>
-  `.trim();
+  return toMarkerImage(svg, size, { x: size / 2, y: size / 2 });
 }
 
 // 스파이더파이어 방사 오프셋 계산 함수

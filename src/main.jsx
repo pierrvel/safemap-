@@ -1,7 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
-import './v2.css';
 
 class ErrorBoundary extends React.Component {
   constructor(props) {
@@ -38,31 +37,29 @@ class ErrorBoundary extends React.Component {
           height: '100vh',
           padding: '24px',
           textAlign: 'center',
-          background: '#f8fafc',
+          background: '#ffffff',
           fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
         }}>
-          <div style={{ fontSize: '48px', marginBottom: '16px' }}>🚨</div>
           <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', marginBottom: '8px' }}>
-            화면을 불러오는 중 일시적인 오류가 발생했습니다
+            화면을 불러오지 못했어요
           </h2>
           <p style={{ fontSize: '13px', color: '#64748b', maxWidth: '320px', lineHeight: '1.5', marginBottom: '20px' }}>
-            캐시된 이전 데이터와의 충돌일 수 있습니다. 아래 버튼을 눌러 최신 데이터로 다시 시작해주세요.
+            저장된 이전 데이터와 충돌했을 수 있어요. 아래 버튼을 누르면 처음부터 다시 시작해요. 응급 상황이면 119에 먼저 전화해 주세요.
           </p>
           <button
             onClick={this.handleReset}
             style={{
               padding: '12px 24px',
-              background: '#2563eb',
+              background: '#191F28',
               color: '#ffffff',
               border: 'none',
-              borderRadius: '12px',
+              borderRadius: '18px',
               fontSize: '14px',
               fontWeight: '700',
               cursor: 'pointer',
-              boxShadow: '0 4px 12px rgba(37, 99, 235, 0.25)'
             }}
           >
-            🔄 최신 상태로 새로고침
+            다시 시작하기
           </button>
         </div>
       );
