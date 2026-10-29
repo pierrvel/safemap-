@@ -63,3 +63,15 @@ export function pickDefaultFacility(list) {
   if (nearest.availableNow === false) return open;
   return walkSeconds(open) - walkSeconds(nearest) <= OPEN_PREFERENCE_SECONDS ? open : nearest;
 }
+
+// 두 좌표 간 방위(8방향) 텍스트 — 오프라인으로 지도가 없을 때 방향 안내용
+const DIRECTION_NAMES = ['북쪽', '북동쪽', '동쪽', '남동쪽', '남쪽', '남서쪽', '서쪽', '북서쪽'];
+export function getDirectionText(lat1, lon1, lat2, lon2) {
+  const toRad = (d) => (d * Math.PI) / 180;
+  const y = Math.sin(toRad(lon2 - lon1)) * Math.cos(toRad(lat2));
+  const x =
+    Math.cos(toRad(lat1)) * Math.sin(toRad(lat2)) -
+    Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(toRad(lon2 - lon1));
+  const bearing = ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+  return DIRECTION_NAMES[Math.round(bearing / 45) % 8];
+}

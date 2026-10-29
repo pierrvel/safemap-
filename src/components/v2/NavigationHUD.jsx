@@ -12,7 +12,7 @@ import {
   Info,
 } from 'lucide-react';
 import { calculateDistanceMeters } from '../../utils/mapIcons';
-import { formatDistance, placeTitle, placeOwner } from '../../utils/format';
+import { formatDistance, placeTitle, placeOwner, getDirectionText } from '../../utils/format';
 import { CallButton, CprButton } from './EmergencyBottomCard';
 
 // 서버가 보내는 안내 기호를 선 아이콘으로 변환
@@ -152,6 +152,11 @@ export default function NavigationHUD({
 
   const StepIcon = (nextStep && STEP_ICONS[nextStep.icon]) || Footprints;
   const isAed = destination?.category !== 'shelter';
+  // 걷는 길이 없을 때(오프라인 등)는 목적지의 방위를 직접 알려준다
+  const directionText =
+    destination && currentPosition?.lat
+      ? `${getDirectionText(currentPosition.lat, currentPosition.lon, destination.lat, destination.lon)}으로 걸어가세요`
+      : '목적지 방향으로 걸어가세요';
   const where = placeTitle(destination);
 
   // 경로가 새로 잡히면(재탐색 포함) 안내 이력 초기화 후 출발 안내
@@ -221,7 +226,7 @@ export default function NavigationHUD({
             <span className="sm-nav-step-dist">
               {nextStepDist !== null ? formatDistance(nextStepDist) : formatDistance(remainingDist)}
             </span>
-            <span className="sm-nav-step-text">{nextStep ? shortInstruction(nextStep) : '목적지 방향으로 걸어가세요'}</span>
+            <span className="sm-nav-step-text">{nextStep ? shortInstruction(nextStep) : directionText}</span>
           </span>
           {canSpeak && (
             <button
@@ -279,7 +284,7 @@ export default function NavigationHUD({
                 <span>
                   {isOffRoute
                     ? '경로에서 벗어났어요. 지금 위치에서 길을 다시 찾을게요.'
-                    : '걷는 길을 불러오지 못해 방향만 안내해요. 지도를 함께 봐 주세요.'}
+                    : '걷는 길을 불러오지 못해 직선 방향으로 안내해요. 주변 길을 살피며 이동해 주세요.'}
                 </span>
               </div>
             )}

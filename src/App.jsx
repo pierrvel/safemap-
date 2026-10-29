@@ -22,9 +22,11 @@ import {
   fetchPedestrianDirections,
   fetchRouteMatrix,
 } from './services/api';
-import { pickDefaultFacility, walkSeconds, walkMinutes, placeTitle, placeOwner } from './utils/format';
+import { pickDefaultFacility, walkSeconds, walkMinutes, placeTitle, placeOwner, getDirectionText } from './utils/format';
 
-const CACHE_KEY = 'safemap_cached_facilities_v3';
+// 오프라인 대비 마지막 검색 결과: 대피소를 봐도 AED 결과가 지워지지 않게 종류별로 따로 저장
+const CACHE_KEY = 'safemap_cached_facilities_v4';
+const LEGACY_CACHE_KEY = 'safemap_cached_facilities_v3';
 // 현장 점검·제보 기능: 저장소(DB)와 제보 검증 체계가 갖춰지기 전까지 화면에서 숨김
 const ENABLE_FIELD_AUDIT = false;
 const REAL_ROUTE_TOP_N = 10;
@@ -34,18 +36,6 @@ const OFFLINE_CACHE_MAX_METERS = 10000;
 const OFF_ROUTE_METERS = 50;
 const OFF_ROUTE_GRACE_MS = 5000;
 const WIDE_QUERY = '(min-width: 900px)';
-
-// 두 좌표 간 방위(8방향) 텍스트 — 오프라인으로 지도가 없을 때 방향 안내용
-const DIRECTION_NAMES = ['북쪽', '북동쪽', '동쪽', '남동쪽', '남쪽', '남서쪽', '서쪽', '북서쪽'];
-function getDirectionText(lat1, lon1, lat2, lon2) {
-  const toRad = (d) => (d * Math.PI) / 180;
-  const y = Math.sin(toRad(lon2 - lon1)) * Math.cos(toRad(lat2));
-  const x =
-    Math.cos(toRad(lat1)) * Math.sin(toRad(lat2)) -
-    Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(toRad(lon2 - lon1));
-  const bearing = ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
-  return DIRECTION_NAMES[Math.round(bearing / 45) % 8];
-}
 
 function getDistanceMeters(lat1, lon1, lat2, lon2) {
   if (!lat1 || !lon1 || !lat2 || !lon2) return Infinity;
@@ -58,11 +48,32 @@ function getDistanceMeters(lat1, lon1, lat2, lon2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+function readOfflineCache() {
+  try {
+    const store = JSON.parse(localStorage.getItem(CACHE_KEY) || 'null');
+    if (store) return store;
+    // 예전 형식(종류 하나만 저장)은 해당 종류 칸으로 옮겨 읽는다
+    const legacy = JSON.parse(localStorage.getItem(LEGACY_CACHE_KEY) || 'null');
+    return legacy?.category ? { [legacy.category]: legacy } : {};
+  } catch (e) {
+    return {};
+  }
+}
+
+function saveOfflineCache(category, entry) {
+  try {
+    localStorage.setItem(CACHE_KEY, JSON.stringify({ ...readOfflineCache(), [category]: entry }));
+    localStorage.removeItem(LEGACY_CACHE_KEY);
+  } catch (e) {
+    // 저장 공간 부족은 무시
+  }
+}
+
 // 오프라인 시 마지막 검색 결과(로컬 저장)를 현재 위치 기준으로 다시 계산 (10km 이내, 같은 종류만)
 function buildOfflineFacilities(lat, lon, category) {
   try {
-    const cached = JSON.parse(localStorage.getItem(CACHE_KEY) || 'null');
-    if (!cached?.facilities?.length || !cached.coords || cached.category !== category) return null;
+    const cached = readOfflineCache()[category];
+    if (!cached?.facilities?.length || !cached.coords) return null;
     if (getDistanceMeters(lat, lon, cached.coords.lat, cached.coords.lon) > OFFLINE_CACHE_MAX_METERS) return null;
     return cached.facilities
       .map((f) => ({
@@ -240,11 +251,7 @@ export default function App() {
       setFacilities(list);
       setIsOfflineView(false);
 
-      try {
-        localStorage.setItem(CACHE_KEY, JSON.stringify({ coords: { lat, lon }, category: cat, facilities: list, timestamp: Date.now() }));
-      } catch (e) {
-        // 저장 공간 부족은 무시
-      }
+      saveOfflineCache(cat, { coords: { lat, lon }, category: cat, facilities: list, timestamp: Date.now() });
 
       if (list.length === 0) {
         setSelectedFacility(null);
@@ -519,7 +526,7 @@ export default function App() {
       <MapView
         isLoaded={isKakaoLoaded}
         unavailableMessage={
-          !isKakaoLoaded && (kakaoError || !isOnline)
+          !isNavigating && !isKakaoLoaded && (kakaoError || !isOnline)
             ? '지도를 불러오지 못했어요. 아래에 적힌 방향과 거리를 보고 이동해 주세요.'
             : null
         }
@@ -585,7 +592,7 @@ export default function App() {
         <NavigationHUD
           navData={navData}
           destination={navTarget}
-          currentPosition={navPosition}
+          currentPosition={navPosition || coords}
           onClose={handleCloseNavigation}
           onOpenCpr={() => setShowCprModal(true)}
           onHeightChange={handleSheetHeight}
