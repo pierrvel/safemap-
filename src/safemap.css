@@ -335,7 +335,7 @@ input {
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-bottom: 4px;
+  margin: 0 auto 4px;
   flex: none;
 }
 
@@ -345,6 +345,46 @@ input {
   height: 5px;
   border-radius: 3px;
   background: var(--line);
+}
+
+/* 접힌 시트: 답 한 줄 + 119 */
+.sm-peek {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.sm-peek-body {
+  flex: 1;
+  min-width: 0;
+  min-height: 52px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  text-align: left;
+}
+
+.sm-peek-title {
+  font-size: var(--fs-19);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+
+.sm-peek-meta {
+  font-size: var(--fs-15);
+  color: var(--gray-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sm-btn-119-peek {
+  flex: none;
+  height: 52px;
+  padding: 0 18px;
+  font-size: var(--fs-19);
 }
 
 .sm-sheet-scroll {

@@ -33,6 +33,7 @@ function toMarkerImage(svg, size, offset) {
 }
 
 // 둥근 사각형 핀: 강조(선택·가장 가까움)는 크게 진한 색, 나머지는 작고 연하게
+// emphasize: 시트를 접어 지도를 넓게 볼 때는 나머지 시설도 진한 색 아이콘으로
 function glyph(category, fg, bg, scale) {
   const t = `translate(${12 - 12 * scale} ${12 - 12 * scale}) scale(${scale})`;
   if (category === 'shelter') {
@@ -41,21 +42,22 @@ function glyph(category, fg, bg, scale) {
   return `<g transform="${t}"><path d="${HEART_PATH}" fill="${fg}"/><path d="${BOLT_PATH}" fill="${bg}"/></g>`;
 }
 
-export function createCustomPinIcon(item, isNearest, isSelected) {
+export function createCustomPinIcon(item, isNearest, isSelected, emphasize = false) {
   const isShelter = item.category === 'shelter';
   const strong = isSelected || isNearest;
-  const fill = isShelter ? (strong ? SHELTER_INK : SHELTER_SOFT) : (strong ? AED_RED : AED_RED_SOFT);
+  const vivid = strong || emphasize;
+  const fill = isShelter ? (vivid ? SHELTER_INK : SHELTER_SOFT) : (vivid ? AED_RED : AED_RED_SOFT);
   // 화면 크기와 별개로 터치 영역은 넉넉히 확보 (선택되지 않은 시설은 작은 점)
-  const size = strong ? 60 : 36;
-  const box = strong ? 52 : 16;
+  const size = strong ? 60 : emphasize ? 44 : 36;
+  const box = strong ? 52 : emphasize ? 32 : 16;
   const pad = (size - box) / 2;
-  const radius = strong ? 17 : 6;
+  const radius = strong ? 17 : emphasize ? 11 : 6;
 
   const svg = `
   <svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
     <rect x="${pad}" y="${pad + 1}" width="${box}" height="${box}" rx="${radius}" fill="#191F28" fill-opacity="0.18"/>
-    <rect x="${pad}" y="${pad}" width="${box}" height="${box}" rx="${radius}" fill="${fill}" stroke="#FFFFFF" stroke-width="${strong ? 3 : 2}"/>
-    ${strong ? `<svg x="${pad}" y="${pad}" width="${box}" height="${box}" viewBox="0 0 24 24">
+    <rect x="${pad}" y="${pad}" width="${box}" height="${box}" rx="${radius}" fill="${fill}" stroke="#FFFFFF" stroke-width="${strong ? 3 : emphasize ? 2.5 : 2}"/>
+    ${vivid ? `<svg x="${pad}" y="${pad}" width="${box}" height="${box}" viewBox="0 0 24 24">
       ${glyph(item.category, '#FFFFFF', fill, 0.62)}
     </svg>` : ''}
   </svg>`.trim();
@@ -63,18 +65,20 @@ export function createCustomPinIcon(item, isNearest, isSelected) {
   return toMarkerImage(svg, size, { x: size / 2, y: size / 2 });
 }
 
-export function createClusterPinIcon(cluster, isNearest) {
+export function createClusterPinIcon(cluster, isNearest, emphasize = false) {
   const count = cluster.length;
   const isShelter = cluster.every((f) => f.category === 'shelter');
-  const fill = isShelter ? (isNearest ? SHELTER_INK : SHELTER_SOFT) : (isNearest ? AED_RED : AED_RED_SOFT);
-  const size = 40;
-  const box = 26;
+  const vivid = isNearest || emphasize;
+  const fill = isShelter ? (vivid ? SHELTER_INK : SHELTER_SOFT) : (vivid ? AED_RED : AED_RED_SOFT);
+  const size = emphasize ? 46 : 40;
+  const box = emphasize ? 34 : 26;
   const pad = (size - box) / 2;
 
   const svg = `
   <svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
-    <rect x="${pad}" y="${pad}" width="${box}" height="${box}" rx="9" fill="${fill}" stroke="#FFFFFF" stroke-width="2"/>
-    <text x="${size / 2}" y="${size / 2 + 4.5}" font-size="13" font-weight="700" fill="#FFFFFF" text-anchor="middle" font-family="Pretendard, -apple-system, sans-serif">${count}</text>
+    ${emphasize ? `<rect x="${pad}" y="${pad + 1}" width="${box}" height="${box}" rx="11" fill="#191F28" fill-opacity="0.18"/>` : ''}
+    <rect x="${pad}" y="${pad}" width="${box}" height="${box}" rx="${emphasize ? 11 : 9}" fill="${fill}" stroke="#FFFFFF" stroke-width="${emphasize ? 2.5 : 2}"/>
+    <text x="${size / 2}" y="${size / 2 + (emphasize ? 5 : 4.5)}" font-size="${emphasize ? 15 : 13}" font-weight="700" fill="#FFFFFF" text-anchor="middle" font-family="Pretendard, -apple-system, sans-serif">${count}</text>
   </svg>`.trim();
 
   return toMarkerImage(svg, size, { x: size / 2, y: size / 2 });

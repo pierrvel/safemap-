@@ -113,6 +113,7 @@ export default function App() {
   const [isOnline, setIsOnline] = useState(() => (typeof navigator === 'undefined' ? true : navigator.onLine));
   const [previewRoute, setPreviewRoute] = useState(null);
   const [sheetHeight, setSheetHeight] = useState(360);
+  const [sheetCollapsed, setSheetCollapsed] = useState(false);
   const [isWide, setIsWide] = useState(() => typeof window !== 'undefined' && window.matchMedia(WIDE_QUERY).matches);
 
   // 가장 마지막에 보낸 요청의 응답만 화면에 반영
@@ -528,6 +529,7 @@ export default function App() {
         onSelectFacility={handleUserSelectFacility}
         navRouteCoordinates={navData?.coordinates || null}
         previewRoute={previewRoute}
+        emphasizeAll={sheetCollapsed && !isNavigating}
         focusPoints={isNavigating && hasArrived && navPosition && navTarget ? [navPosition, navTarget] : null}
         bottomOffset={isWide || showLocationScreen ? 0 : sheetHeight}
         leftInset={isWide ? 416 : 0}
@@ -566,6 +568,7 @@ export default function App() {
           openAlternative={openAlternative}
           isOfflineView={isOfflineView}
           onHeightChange={handleSheetHeight}
+          onCollapsedChange={setSheetCollapsed}
         />
       )}
 

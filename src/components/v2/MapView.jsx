@@ -68,6 +68,7 @@ export default function MapView({
   navRouteCoordinates,
   previewRoute = null,
   focusPoints = null,
+  emphasizeAll = false,
   bottomOffset = 0,
   leftInset = 0,
   onCameraMove,
@@ -148,12 +149,16 @@ export default function MapView({
 
   // 지도는 시트 위쪽까지만 차지 (카카오 로고·축척이 가리지 않게): 크기가 바뀌면 다시 배치
   useEffect(() => {
-    if (!mapRef.current || !window.kakao?.maps) return;
-    mapRef.current.relayout();
-    mapRef.current.setCopyrightPosition(
+    if (!mapRef.current || !window.kakao?.maps) return undefined;
+    const map = mapRef.current;
+    map.relayout();
+    // 시트를 접고 펼칠 때 카카오맵이 바뀐 크기를 놓치는 경우가 있어 한 번 더 맞춘다
+    const timer = setTimeout(() => map.relayout(), 120);
+    map.setCopyrightPosition(
       leftInset > 0 ? window.kakao.maps.CopyrightPosition.BOTTOMRIGHT : window.kakao.maps.CopyrightPosition.BOTTOMLEFT,
       true
     );
+    return () => clearTimeout(timer);
   }, [bottomOffset, leftInset, mapReady]);
 
   // 도착 등: 주어진 지점(내 위치·목적지)이 모두 보이게 맞춤
@@ -246,7 +251,7 @@ export default function MapView({
       const spMarker = new window.kakao.maps.Marker({
         map: mapRef.current,
         position: spLatLng,
-        image: createCustomPinIcon(item, false, isSelected),
+        image: createCustomPinIcon(item, false, isSelected, emphasizeAll),
         zIndex: isSelected ? 35 : 30,
       });
       spMarker.item = item;
@@ -256,14 +261,14 @@ export default function MapView({
         spiderMarkersRef.current.forEach((m) => {
           if (!m?.item) return;
           const isThisSelected = m.item.id === item.id;
-          m.setImage(createCustomPinIcon(m.item, false, isThisSelected));
+          m.setImage(createCustomPinIcon(m.item, false, isThisSelected, emphasizeAll));
           m.setZIndex(isThisSelected ? 35 : 30);
         });
       });
 
       spiderMarkersRef.current.push(spMarker);
     });
-  }, [collapseSpider, selectedFacility, selectLatest]);
+  }, [collapseSpider, selectedFacility, selectLatest, emphasizeAll]);
   const expandSpiderRef = useRef(expandSpider);
   expandSpiderRef.current = expandSpider;
 
@@ -287,16 +292,17 @@ export default function MapView({
 
         if (currentMap.has(key)) {
           const entry = currentMap.get(key);
-          if (entry.isSelected !== isSelected) {
-            entry.marker.setImage(createCustomPinIcon(fac, false, isSelected));
+          if (entry.isSelected !== isSelected || entry.emphasize !== emphasizeAll) {
+            entry.marker.setImage(createCustomPinIcon(fac, false, isSelected, emphasizeAll));
             entry.marker.setZIndex(isSelected ? 16 : 4);
             entry.isSelected = isSelected;
+            entry.emphasize = emphasizeAll;
           }
         } else {
           const pos = new window.kakao.maps.LatLng(fac.lat, fac.lon);
           const marker = new window.kakao.maps.Marker({
             position: pos,
-            image: createCustomPinIcon(fac, false, isSelected),
+            image: createCustomPinIcon(fac, false, isSelected, emphasizeAll),
             map: mapRef.current,
             zIndex: isSelected ? 16 : 4,
             title: fac.name,
@@ -305,7 +311,7 @@ export default function MapView({
             collapseSpider();
             selectLatest(fac);
           });
-          currentMap.set(key, { marker, isSelected });
+          currentMap.set(key, { marker, isSelected, emphasize: emphasizeAll });
         }
       } else {
         const clusterKey = `cluster-${group.map((f) => f.id).sort().join('-')}`;
@@ -314,10 +320,11 @@ export default function MapView({
 
         if (currentMap.has(clusterKey)) {
           const entry = currentMap.get(clusterKey);
-          if (entry.isSelected !== isSelected) {
-            entry.marker.setImage(createClusterPinIcon(group, isSelected));
+          if (entry.isSelected !== isSelected || entry.emphasize !== emphasizeAll) {
+            entry.marker.setImage(createClusterPinIcon(group, isSelected, emphasizeAll));
             entry.marker.setZIndex(isSelected ? 10 : 5);
             entry.isSelected = isSelected;
+            entry.emphasize = emphasizeAll;
           }
         } else {
           const avgLat = group.reduce((sum, f) => sum + f.lat, 0) / group.length;
@@ -325,7 +332,7 @@ export default function MapView({
           const centerPos = { lat: avgLat, lng: avgLon };
           const marker = new window.kakao.maps.Marker({
             position: new window.kakao.maps.LatLng(avgLat, avgLon),
-            image: createClusterPinIcon(group, isSelected),
+            image: createClusterPinIcon(group, isSelected, emphasizeAll),
             map: mapRef.current,
             zIndex: isSelected ? 10 : 5,
             title: `같은 건물 ${group.length}곳 (눌러서 펼치기)`,
@@ -333,7 +340,7 @@ export default function MapView({
           window.kakao.maps.event.addListener(marker, 'click', () => {
             expandSpiderRef.current(getLatestGroup(group), centerPos, clusterKey);
           });
-          currentMap.set(clusterKey, { marker, isSelected });
+          currentMap.set(clusterKey, { marker, isSelected, emphasize: emphasizeAll });
         }
       }
     });
@@ -344,7 +351,7 @@ export default function MapView({
         currentMap.delete(key);
       }
     }
-  }, [facilities, selectedFacility, collapseSpider, selectLatest, mapReady]);
+  }, [facilities, selectedFacility, collapseSpider, selectLatest, mapReady, emphasizeAll]);
 
   // 5. 경로선: 길안내 중에는 진한 빨강, 첫 화면 미리보기는 연한 빨강 + 시간 말풍선
   useEffect(() => {

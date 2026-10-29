@@ -54,7 +54,7 @@ function LocationNote({ facility }) {
 /**
  * 하단 시트: 첫 화면의 답 하나와 행동 넷(119·안내·CPR·부탁)
  * - 답이 준비되기 전에는 자리만 보여주고, 한 번 그린 답은 저절로 바꾸지 않는다 (App이 보장)
- * - 위로 밀거나 손잡이를 누르면 주변 목록
+ * - 위로 밀면 주변 목록, 아래로 밀거나 손잡이를 누르면 한 줄로 접혀 지도가 넓어진다
  */
 export default function EmergencyBottomCard({
   category = 'aed',
@@ -68,8 +68,10 @@ export default function EmergencyBottomCard({
   openAlternative = null,
   isOfflineView = false,
   onHeightChange,
+  onCollapsedChange,
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const sheetRef = useRef(null);
   const touchStartY = useRef(null);
@@ -86,9 +88,19 @@ export default function EmergencyBottomCard({
     return () => ro.disconnect();
   }, [onHeightChange]);
 
+  // 지도에서 다른 시설을 고르면 접힌 시트를 다시 펼쳐 답을 보여준다
   useEffect(() => {
     setDetailsOpen(false);
+    setCollapsed(false);
   }, [facility?.id]);
+
+  const canCollapse = answerReady && !!facility;
+  const isCollapsed = collapsed && canCollapse && !expanded;
+
+  useEffect(() => {
+    onCollapsedChange?.(isCollapsed);
+  }, [isCollapsed, onCollapsedChange]);
+  useEffect(() => () => onCollapsedChange?.(false), [onCollapsedChange]);
 
   const handleTouchStart = (e) => {
     touchStartY.current = e.touches[0].clientY;
@@ -97,17 +109,28 @@ export default function EmergencyBottomCard({
     if (touchStartY.current === null) return;
     const delta = e.changedTouches[0].clientY - touchStartY.current;
     touchStartY.current = null;
-    if (delta < -40 && facilities.length > 1) setExpanded(true);
-    if (delta > 40) setExpanded(false);
+    if (delta < -40) {
+      if (isCollapsed) setCollapsed(false);
+      else if (facilities.length > 1) setExpanded(true);
+    }
+    if (delta > 40) {
+      if (expanded) setExpanded(false);
+      else if (canCollapse) setCollapsed(true);
+    }
+  };
+
+  const handleGrab = () => {
+    if (expanded) setExpanded(false);
+    else if (canCollapse) setCollapsed((v) => !v);
   };
 
   const grab = (
     <button
       type="button"
       className="sm-grab"
-      onClick={() => facilities.length > 1 && setExpanded((v) => !v)}
-      aria-label={expanded ? '목록 접기' : `주변 ${kind} 목록 펼치기`}
-      aria-expanded={expanded}
+      onClick={handleGrab}
+      aria-label={expanded ? '목록 접기' : isCollapsed ? '카드 펼치기' : '카드 접고 지도 크게 보기'}
+      aria-expanded={!isCollapsed}
     />
   );
 
@@ -160,7 +183,31 @@ export default function EmergencyBottomCard({
   const owner = placeOwner(facility);
   const kakaoMapUrl = `https://map.kakao.com/link/to/${encodeURIComponent(placeTitle(facility))},${facility.lat},${facility.lon}`;
 
-  // 3. 주변 목록 (펼친 상태)
+  // 3. 접힌 상태: 답 한 줄과 119만 남기고 지도를 넓게
+  if (isCollapsed) {
+    return (
+      <section
+        ref={sheetRef}
+        className="sm-sheet"
+        aria-label={`가장 가까운 ${kind}`}
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+      >
+        {grab}
+        <div className="sm-peek">
+          <button type="button" className="sm-peek-body" onClick={() => setCollapsed(false)}>
+            <span className="sm-peek-title">{kind}까지 걸어서 약 {minutes}분</span>
+            <span className="sm-peek-meta">
+              {placeTitle(facility)} · {formatDistance(distance)}
+            </span>
+          </button>
+          <CallButton className="sm-btn-119 sm-btn-119-peek" />
+        </div>
+      </section>
+    );
+  }
+
+  // 4. 주변 목록 (펼친 상태)
   if (expanded) {
     return (
       <section ref={sheetRef} className="sm-sheet" aria-label={`주변 ${kind} 목록`}>
@@ -206,7 +253,7 @@ export default function EmergencyBottomCard({
     );
   }
 
-  // 4. 첫 화면의 답
+  // 5. 첫 화면의 답
   return (
     <section ref={sheetRef} className="sm-sheet sm-sheet-enter" aria-label={`가장 가까운 ${kind}`}>
       <div onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
