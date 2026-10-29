@@ -24,3 +24,9 @@ dist/
 
 # AI Agent config
 .claude/
+
+# Impeccable local state
+.impeccable/config.local.json
+.impeccable/hook.cache.json
+.impeccable/live/
+.impeccable/questions/

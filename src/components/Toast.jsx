@@ -1,19 +1,15 @@
 import React, { useEffect } from 'react';
 
-export default function Toast({ message, onClose, duration = 2500 }) {
+export default function Toast({ message, onClose, duration = 2800 }) {
   useEffect(() => {
-    if (!message) return;
-    const timer = setTimeout(() => {
-      onClose();
-    }, duration);
+    if (!message) return undefined;
+    const timer = setTimeout(onClose, duration);
     return () => clearTimeout(timer);
   }, [message, onClose, duration]);
 
-  if (!message) return null;
-
   return (
-    <div className="status-toast show">
-      <span>{message}</span>
+    <div aria-live="polite" role="status">
+      {message && <div className="sm-toast">{message}</div>}
     </div>
   );
 }

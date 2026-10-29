@@ -1,13 +1,13 @@
 {
-  "name": "골든러너 119 | AED 긴급 내비게이션",
-  "short_name": "골든러너",
-  "description": "심정지 골든타임 4분 사수를 위한 실시간 AED 및 긴급 안전시설 내비게이션",
+  "name": "세이프맵 · 가장 가까운 AED 찾기",
+  "short_name": "세이프맵",
+  "description": "가장 가까운 AED와 민방위 대피소를 찾아 걸어가는 길을 안내해요.",
   "start_url": "/?source=pwa",
   "id": "/?source=pwa",
   "scope": "/",
   "display": "standalone",
-  "background_color": "#0f172a",
-  "theme_color": "#2563eb",
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff",
   "orientation": "any",
   "lang": "ko-KR",
   "categories": [
@@ -43,15 +43,15 @@
   ],
   "shortcuts": [
     {
-      "name": "CPR 메트로놈 (105 BPM)",
+      "name": "CPR 도와줘요",
       "url": "/?action=cpr",
-      "description": "응급 심폐소생술 박자 가이드 즉시 실행",
+      "description": "가슴 압박 박자를 바로 안내해요",
       "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
     },
     {
-      "name": "가장 가까운 AED 길안내",
+      "name": "가장 가까운 AED",
       "url": "/?action=nearest",
-      "description": "최단거리 AED로 바로 도보 길안내 시작",
+      "description": "가장 가까운 AED를 바로 찾아요",
       "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
     }
   ]
