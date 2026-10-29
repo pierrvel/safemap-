@@ -135,7 +135,7 @@ input {
 
 /* 지도 바탕 색을 낮춰 AED 핀과 경로가 먼저 보이게 (핀·말풍선은 data: 이미지·HTML이라 제외) */
 .sm-map-canvas img:not([src^='data:']) {
-  filter: saturate(0.3) contrast(0.96) brightness(1.03);
+  filter: saturate(0.6) contrast(0.98) brightness(1.02);
 }
 
 .sm-map-unavailable {
