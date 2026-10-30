@@ -22,6 +22,7 @@ import {
   fetchPedestrianDirections,
   fetchRouteMatrix,
 } from './services/api';
+import { searchPlaces } from './utils/placeSearch';
 import { pickDefaultFacility, walkSeconds, walkMinutes, placeTitle, placeOwner, getDirectionText } from './utils/format';
 
 // 오프라인 대비 마지막 검색 결과: 대피소를 봐도 AED 결과가 지워지지 않게 종류별로 따로 저장
@@ -361,31 +362,25 @@ export default function App() {
   }, [answerReady, selectedFacility, isNavigating, coords.lat, coords.lon, isOfflineView]);
 
   // 장소·주소 검색
-  const handleSearch = (keyword) => {
+  // 검색 기준: 지금 보고 있는 지도 중심 → 내 위치 (가까운 곳을 먼저 찾고 거리를 보여주기 위해)
+  const searchBias = cameraCenter || (coords.lat ? { lat: coords.lat, lon: coords.lon } : null);
+
+  const handlePickPlace = (place) => {
+    setManualCoords(place.lat, place.lon);
+    showToast(`'${place.name}' 주변을 찾을게요.`);
+  };
+
+  // 후보가 뜨기 전에 엔터를 누른 경우: 같은 방식으로 찾아 첫 후보로 이동
+  const handleSearch = async (keyword) => {
     if (!window.kakao?.maps?.services) {
       showToast('지도 검색을 준비하고 있어요. 잠시 후 다시 시도해 주세요.');
       return;
     }
     setIsSearching(true);
-    const places = new window.kakao.maps.services.Places();
-    places.keywordSearch(keyword, (data, status) => {
-      if (status === window.kakao.maps.services.Status.OK && data.length > 0) {
-        setManualCoords(parseFloat(data[0].y), parseFloat(data[0].x));
-        setIsSearching(false);
-        showToast(`'${data[0].place_name}' 주변을 찾을게요.`);
-        return;
-      }
-      const geocoder = new window.kakao.maps.services.Geocoder();
-      geocoder.addressSearch(keyword, (addrData, addrStatus) => {
-        setIsSearching(false);
-        if (addrStatus === window.kakao.maps.services.Status.OK && addrData.length > 0) {
-          setManualCoords(parseFloat(addrData[0].y), parseFloat(addrData[0].x));
-          showToast(`'${addrData[0].address_name}' 주변을 찾을게요.`);
-        } else {
-          showToast(`'${keyword}'을(를) 찾지 못했어요. 다른 이름으로 검색해 주세요.`);
-        }
-      });
-    });
+    const [first] = await searchPlaces(keyword, searchBias);
+    setIsSearching(false);
+    if (first) handlePickPlace(first);
+    else showToast(`'${keyword}'을(를) 찾지 못했어요. 다른 이름이나 주소로 찾아보세요.`);
   };
 
   // 옆 사람에게 위치 보내기: 공유 창이 있으면 공유, 없으면 링크 복사
@@ -560,6 +555,8 @@ export default function App() {
           category={category}
           onSelectCategory={setCategory}
           onSearch={handleSearch}
+          onPickPlace={handlePickPlace}
+          searchBias={searchBias}
           isSearching={isSearching}
           onOpenInfo={() => setShowInfoModal(true)}
         />
@@ -615,6 +612,7 @@ export default function App() {
           status={geoStatus}
           onAllow={() => requestGps(true)}
           onSearch={handleSearch}
+          onPickPlace={handlePickPlace}
           isSearching={isSearching}
           onOpenCpr={() => setShowCprModal(true)}
         />

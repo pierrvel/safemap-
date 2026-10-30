@@ -1,15 +1,18 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { CallButton, CprButton } from './EmergencyBottomCard';
+import PlaceSuggestions from './PlaceSuggestions';
+import usePlaceSuggestions from '../../hooks/usePlaceSuggestions';
 
 /**
  * 위치가 없을 때의 첫 화면: 왜 위치가 필요한지 한 줄로 말하고,
  * 위치 없이도 119와 CPR은 바로 누를 수 있게 둔다.
  */
-export default function LocationScreen({ status, onAllow, onSearch, isSearching, onOpenCpr }) {
+export default function LocationScreen({ status, onAllow, onSearch, onPickPlace, isSearching, onOpenCpr }) {
   const denied = status === 'denied';
   const [searchOpen, setSearchOpen] = useState(denied);
   const [keyword, setKeyword] = useState('');
   const inputRef = useRef(null);
+  const suggestions = usePlaceSuggestions(searchOpen ? keyword : '');
 
   useEffect(() => {
     if (denied) setSearchOpen(true);
@@ -19,10 +22,13 @@ export default function LocationScreen({ status, onAllow, onSearch, isSearching,
     if (searchOpen && !denied) inputRef.current?.focus();
   }, [searchOpen, denied]);
 
+  // 엔터: 첫 후보로, 후보가 아직 없으면 바로 검색
   const handleSubmit = (e) => {
     e.preventDefault();
     const value = keyword.trim();
-    if (value) onSearch(value);
+    if (!value) return;
+    if (suggestions.results.length) onPickPlace(suggestions.results[0]);
+    else onSearch(value);
   };
 
   return (
@@ -54,11 +60,17 @@ export default function LocationScreen({ status, onAllow, onSearch, isSearching,
                 onChange={(e) => setKeyword(e.target.value)}
                 autoComplete="off"
                 enterKeyHint="search"
+                role="combobox"
+                aria-expanded={suggestions.results.length > 0}
+                aria-controls="sm-location-suggest"
               />
               <button type="submit" className="sm-search-submit" disabled={isSearching}>
                 {isSearching ? '찾는 중' : '찾기'}
               </button>
             </form>
+          )}
+          {searchOpen && (
+            <PlaceSuggestions id="sm-location-suggest" state={suggestions} activeIndex={-1} onPick={onPickPlace} inline />
           )}
           {denied ? (
             <button type="button" className="sm-btn-sec" onClick={onAllow}>위치 다시 확인하기</button>

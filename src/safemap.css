@@ -277,6 +277,12 @@ input {
   font-size: var(--fs-17);
 }
 
+/* 브라우저 기본 지우기 버튼(파란 ×)은 숨김: 닫기는 오른쪽 버튼으로 */
+input[type='search']::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
 .sm-search input::placeholder {
   color: var(--gray-2);
 }
@@ -345,6 +351,84 @@ input {
   height: 5px;
   border-radius: 3px;
   background: var(--line);
+}
+
+/* 검색 후보 목록: 위쪽 바 바로 아래에 떠 있음 (위치 화면에서는 검색창 아래에 그대로) */
+.sm-suggest {
+  position: absolute;
+  top: 56px;
+  left: 0;
+  right: 0;
+  background: var(--paper);
+  border-radius: var(--r);
+  box-shadow: var(--shadow-float);
+  padding: 6px;
+  max-height: min(60dvh, 380px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.sm-suggest.is-inline {
+  position: static;
+  margin-top: 8px;
+  box-shadow: none;
+  border: 1px solid var(--line);
+}
+
+.sm-suggest-list {
+  list-style: none;
+}
+
+.sm-suggest-row {
+  width: 100%;
+  min-height: 56px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  column-gap: 12px;
+  row-gap: 2px;
+  align-content: center;
+  text-align: left;
+}
+
+.sm-suggest-row:active,
+.sm-suggest-row[aria-selected='true'] {
+  background: var(--surface);
+}
+
+.sm-suggest-name {
+  font-size: var(--fs-17);
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sm-suggest-dist {
+  font-size: var(--fs-15);
+  color: var(--gray-2);
+  font-variant-numeric: tabular-nums;
+  align-self: center;
+}
+
+.sm-suggest-addr {
+  grid-column: 1 / -1;
+  font-size: var(--fs-13);
+  color: var(--gray-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sm-suggest-note,
+.sm-screen .sm-suggest-note {
+  margin: 0;
+  padding: 14px 12px;
+  font-size: var(--fs-15);
+  line-height: 1.5;
+  color: var(--gray-1);
 }
 
 /* 접힌 시트: 답 한 줄 + 119 */
@@ -763,9 +847,16 @@ input {
   letter-spacing: -0.02em;
 }
 
+/* 내용이 길어져도(검색 후보 등) 아래 119 영역은 화면에 남도록 본문만 스크롤 */
 .sm-screen-body {
   flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
   padding-top: 12vh;
+  padding-bottom: 16px;
   max-width: 440px;
 }
 
