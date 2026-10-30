@@ -329,11 +329,21 @@ export default function App() {
     }
     let cancelled = false;
     const fac = selectedFacility;
-    const label = `도보 약 ${walkMinutes(fac)}분`;
     const key = `${fac.id}|${coords.lat.toFixed(4)}|${coords.lon.toFixed(4)}`;
     const show = (res) => {
       if (cancelled) return;
-      setPreviewRoute({ coordinates: res.coordinates, label, isEstimate: res.isRealRoad === false });
+      const isReal = res.isRealRoad !== false && Number.isFinite(res.durationSeconds);
+      // 지도에 그린 실제 걷는 길과 카드의 시간·거리가 어긋나지 않게, 실측 경로 값으로 숫자만 고친다 (답은 그대로)
+      if (isReal && (fac.realDistanceMeters !== res.distanceMeters || fac.realDurationSeconds !== res.durationSeconds)) {
+        const patch = (f) =>
+          f.id === fac.id
+            ? { ...f, realDistanceMeters: res.distanceMeters, realDurationSeconds: res.durationSeconds, isRealRoad: true }
+            : f;
+        setFacilities((prev) => prev.map(patch));
+        setSelectedFacility((prev) => (prev?.id === fac.id ? patch(prev) : prev));
+      }
+      const minutes = isReal ? Math.max(1, Math.round(res.durationSeconds / 60)) : walkMinutes(fac);
+      setPreviewRoute({ coordinates: res.coordinates, label: `도보 약 ${minutes}분`, isEstimate: !isReal });
     };
     const cached = routeCacheRef.current.get(key);
     if (cached) {

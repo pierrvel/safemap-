@@ -96,28 +96,30 @@ export function createUserLocationIcon() {
   return toMarkerImage(svg, size, { x: size / 2, y: size / 2 });
 }
 
-// 스파이더파이어 방사 오프셋 계산 함수
-export function calculateSpiderPositions(cluster, centerPos) {
-  const count = cluster.length;
-  const radiusDeg = 0.00033; // 약 36m
-  const centerLat = Number(centerPos.lat);
-  const centerLon = Number(centerPos.lng ?? centerPos.lon);
-  const latCos = Math.max(0.1, Math.cos(centerLat * Math.PI / 180));
+// 겹친 시설 펼치기 배치: 화면 픽셀 기준으로 핀이 겹치지 않게 여러 겹의 원에 나눠 놓는다
+// (줌 수준과 상관없이 같은 간격으로 보이도록 지도 투영으로 좌표를 바꾼다)
+const SPIDER_FIRST_RING_PX = 56;
+const SPIDER_SPACING_PX = 48;
 
-  return cluster.map((item, index) => {
-    let angle;
-    if (count === 2) {
-      angle = (index === 0) ? (-3 * Math.PI / 4) : (Math.PI / 4);
-    } else {
-      angle = (2 * Math.PI * index) / count - (Math.PI / 2);
+export function calculateSpiderPositions(map, cluster, centerLatLng) {
+  const projection = map.getProjection();
+  const center = projection.containerPointFromCoords(centerLatLng);
+  const positions = [];
+  let placed = 0;
+  let ring = 0;
+
+  while (placed < cluster.length) {
+    const radius = SPIDER_FIRST_RING_PX + ring * SPIDER_SPACING_PX;
+    const capacity = Math.max(2, Math.floor((2 * Math.PI * radius) / SPIDER_SPACING_PX));
+    const count = Math.min(capacity, cluster.length - placed);
+    for (let i = 0; i < count; i++) {
+      // 겹마다 조금씩 돌려 바깥 핀이 안쪽 핀 바로 뒤에 숨지 않게
+      const angle = (2 * Math.PI * i) / count - Math.PI / 2 + ring * 0.3;
+      const point = new window.kakao.maps.Point(center.x + radius * Math.cos(angle), center.y + radius * Math.sin(angle));
+      positions.push({ item: cluster[placed + i], position: projection.coordsFromContainerPoint(point) });
     }
-
-    const sLat = centerLat + radiusDeg * Math.cos(angle);
-    const sLon = centerLon + (radiusDeg * Math.sin(angle)) / latCos;
-
-    return {
-      item,
-      spiderPos: { lat: sLat, lng: sLon },
-    };
-  });
+    placed += count;
+    ring += 1;
+  }
+  return positions;
 }

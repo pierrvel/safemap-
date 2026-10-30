@@ -82,7 +82,9 @@ export default function MapView({
   const markerMapRef = useRef(new Map());
   const spiderMarkersRef = useRef([]);
   const spiderLinesRef = useRef([]);
-  const activeClusterIdRef = useRef(null);
+  // 펼친 묶음: 묶음을 다시 누르기 전까지 유지 (다른 곳을 누르거나 길안내를 시작해도 그대로)
+  const spiderRef = useRef(null);
+  const [spiderKey, setSpiderKey] = useState(null);
   const routeLinesRef = useRef([]);
   const bubbleRef = useRef(null);
   const isInitialCenteringDone = useRef(false);
@@ -111,12 +113,17 @@ export default function MapView({
     mapRef.current.setBounds(bounds, 96, 72, 56, left + 56);
   }, []);
 
-  const collapseSpider = useCallback(() => {
+  const clearSpiderOverlays = () => {
     spiderMarkersRef.current.forEach((m) => m.setMap(null));
     spiderMarkersRef.current = [];
     spiderLinesRef.current.forEach((l) => l.setMap(null));
     spiderLinesRef.current = [];
-    activeClusterIdRef.current = null;
+  };
+
+  const collapseSpider = useCallback(() => {
+    clearSpiderOverlays();
+    spiderRef.current = null;
+    setSpiderKey(null);
   }, []);
 
   // 1. 지도 초기화 (최초 1회만 내 위치로 중심 설정)
@@ -138,14 +145,15 @@ export default function MapView({
     isInitialCenteringDone.current = hasUserCoords;
     setMapReady(true);
 
-    window.kakao.maps.event.addListener(map, 'click', collapseSpider);
+    // 줌을 바꾸면 펼친 핀 간격을 화면 기준으로 다시 맞춘다
+    window.kakao.maps.event.addListener(map, 'zoom_changed', () => drawSpiderRef.current?.());
 
     // 지도를 끌면 내 위치는 그대로 두고 카메라 중심만 알림
     window.kakao.maps.event.addListener(map, 'dragend', () => {
       const center = map.getCenter();
       onCameraMove?.({ lat: center.getLat(), lon: center.getLng() });
     });
-  }, [isLoaded, onCameraMove, collapseSpider]);
+  }, [isLoaded, onCameraMove]);
 
   // 지도는 시트 위쪽까지만 차지 (카카오 로고·축척이 가리지 않게): 크기가 바뀌면 다시 배치
   useEffect(() => {
@@ -223,62 +231,83 @@ export default function MapView({
   }, [userCoords, mapReady]);
 
   // 3. 겹친 시설 펼치기
-  const expandSpider = useCallback((cluster, centerPos, clusterId) => {
-    if (activeClusterIdRef.current === clusterId) {
-      collapseSpider();
-      return;
-    }
-    collapseSpider();
-    activeClusterIdRef.current = clusterId;
+  const selectedIdRef = useRef(selectedFacility?.id);
+  selectedIdRef.current = selectedFacility?.id;
 
-    calculateSpiderPositions(cluster, centerPos).forEach(({ item, spiderPos }) => {
-      const spLatLng = new window.kakao.maps.LatLng(spiderPos.lat, spiderPos.lng);
-      const centerLatLng = new window.kakao.maps.LatLng(centerPos.lat, centerPos.lng);
+  // 펼친 핀은 사용자가 직접 보려고 연 것이므로 항상 진한 아이콘으로 그린다
+  const drawSpider = useCallback(() => {
+    clearSpiderOverlays();
+    const spider = spiderRef.current;
+    const map = mapRef.current;
+    if (!spider || !map || !window.kakao?.maps) return;
 
+    const centerLatLng = new window.kakao.maps.LatLng(spider.center.lat, spider.center.lng);
+    calculateSpiderPositions(map, getLatestGroup(spider.group), centerLatLng).forEach(({ item, position }) => {
       spiderLinesRef.current.push(
         new window.kakao.maps.Polyline({
-          map: mapRef.current,
-          path: [centerLatLng, spLatLng],
-          strokeWeight: 2,
+          map,
+          path: [centerLatLng, position],
+          strokeWeight: 1.5,
           strokeColor: '#8B95A1',
-          strokeOpacity: 0.8,
+          strokeOpacity: 0.55,
           strokeStyle: 'shortdash',
           zIndex: 5,
         })
       );
 
-      const isSelected = selectedFacility?.id === item.id;
-      const spMarker = new window.kakao.maps.Marker({
-        map: mapRef.current,
-        position: spLatLng,
-        image: createCustomPinIcon(item, false, isSelected, emphasizeAll),
+      const isSelected = selectedIdRef.current === item.id;
+      const marker = new window.kakao.maps.Marker({
+        map,
+        position,
+        image: createCustomPinIcon(item, false, isSelected, true),
         zIndex: isSelected ? 35 : 30,
+        title: item.name,
       });
-      spMarker.item = item;
-
-      window.kakao.maps.event.addListener(spMarker, 'click', () => {
-        selectLatest(item);
-        spiderMarkersRef.current.forEach((m) => {
-          if (!m?.item) return;
-          const isThisSelected = m.item.id === item.id;
-          m.setImage(createCustomPinIcon(m.item, false, isThisSelected, emphasizeAll));
-          m.setZIndex(isThisSelected ? 35 : 30);
-        });
-      });
-
-      spiderMarkersRef.current.push(spMarker);
+      window.kakao.maps.event.addListener(marker, 'click', () => selectLatest(item));
+      spiderMarkersRef.current.push(marker);
     });
-  }, [collapseSpider, selectedFacility, selectLatest, emphasizeAll]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectLatest]);
+  const drawSpiderRef = useRef(drawSpider);
+  drawSpiderRef.current = drawSpider;
+
+  // 같은 묶음을 다시 누르면 접고, 다른 묶음을 누르면 그 묶음으로 바꿔 펼친다
+  const expandSpider = useCallback((cluster, centerPos) => {
+    const active = spiderRef.current;
+    if (active && cluster.some((f) => active.ids.has(f.id))) {
+      collapseSpider();
+      return;
+    }
+    const ids = new Set(cluster.map((f) => f.id));
+    spiderRef.current = { ids, group: cluster, center: centerPos };
+    setSpiderKey([...ids].sort().join('|'));
+    drawSpider();
+  }, [collapseSpider, drawSpider]);
   const expandSpiderRef = useRef(expandSpider);
   expandSpiderRef.current = expandSpider;
+
+  // 선택이 바뀌면 펼친 핀의 강조만 다시 그린다
+  useEffect(() => {
+    if (spiderRef.current) drawSpider();
+  }, [selectedFacility?.id, drawSpider]);
 
   // 4. 시설 마커 (재사용 풀링, 선택된 시설만 크게)
   useEffect(() => {
     if (!mapRef.current || !window.kakao?.maps) return;
 
     const currentMap = markerMapRef.current;
+
+    // 새로 찾은 목록에 펼친 묶음의 시설이 없으면 접는다
+    const spider = spiderRef.current;
+    if (spider && !facilities.some((f) => spider.ids.has(f.id))) collapseSpider();
+
     // 답으로 고른 시설은 묶음에 넣지 않고 항상 실제 좌표에 큰 핀으로
-    const selected = selectedFacility ? facilities.find((f) => f.id === selectedFacility.id) || selectedFacility : null;
+    // (단, 펼쳐 둔 묶음 안에서 고른 시설은 펼친 핀이 대신 크게 보여주므로 묶음에 그대로 둔다)
+    const pickedInSpider = !!(selectedFacility && spiderRef.current?.ids.has(selectedFacility.id));
+    const selected =
+      selectedFacility && !pickedInSpider
+        ? facilities.find((f) => f.id === selectedFacility.id) || selectedFacility
+        : null;
     const others = selected ? facilities.filter((f) => f.id !== selected.id) : facilities;
     const clusters = [...(selected ? [[selected]] : []), ...groupOverlappingFacilities(others)];
     const nextKeys = new Set();
@@ -307,10 +336,7 @@ export default function MapView({
             zIndex: isSelected ? 16 : 4,
             title: fac.name,
           });
-          window.kakao.maps.event.addListener(marker, 'click', () => {
-            collapseSpider();
-            selectLatest(fac);
-          });
+          window.kakao.maps.event.addListener(marker, 'click', () => selectLatest(fac));
           currentMap.set(key, { marker, isSelected, emphasize: emphasizeAll });
         }
       } else {
@@ -338,7 +364,7 @@ export default function MapView({
             title: `같은 건물 ${group.length}곳 (눌러서 펼치기)`,
           });
           window.kakao.maps.event.addListener(marker, 'click', () => {
-            expandSpiderRef.current(getLatestGroup(group), centerPos, clusterKey);
+            expandSpiderRef.current(getLatestGroup(group), centerPos);
           });
           currentMap.set(clusterKey, { marker, isSelected, emphasize: emphasizeAll });
         }
@@ -351,7 +377,7 @@ export default function MapView({
         currentMap.delete(key);
       }
     }
-  }, [facilities, selectedFacility, collapseSpider, selectLatest, mapReady, emphasizeAll]);
+  }, [facilities, selectedFacility, collapseSpider, selectLatest, mapReady, emphasizeAll, spiderKey]);
 
   // 5. 경로선: 길안내 중에는 진한 빨강, 첫 화면 미리보기는 연한 빨강 + 시간 말풍선
   useEffect(() => {

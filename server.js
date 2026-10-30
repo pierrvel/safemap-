@@ -593,6 +593,8 @@ app.get(['/api/reports', '/reports'], (req, res) => {
 // ==========================================================
 
 // 다중 시설 도보 실거리 계산 API (Table Matrix)
+const MATRIX_TIMEOUT_MS = 1300;
+const MATRIX_TMAP_TOP_N = 3;
 app.post(['/api/routes/matrix', '/routes/matrix'], async (req, res) => {
   try {
     const { origin, destinations } = req.body;
@@ -608,56 +610,55 @@ app.post(['/api/routes/matrix', '/routes/matrix'], async (req, res) => {
     const coordsStr = `${oLon},${oLat};` + targets.map(t => `${t.lon},${t.lat}`).join(';');
     const url = `https://routing.openstreetmap.de/routed-foot/table/v1/driving/${coordsStr}?sources=0&annotations=distance,duration`;
 
-    let data = null;
-    try {
-      const resp = await fetch(url, {
-        headers: { 'User-Agent': 'GoldenTime-SafeMap/1.0 (Emergency SafeMap Service)' },
-        signal: AbortSignal.timeout(4000),
+    // 답을 기다리는 화면(약 1.5초)에 맞춰 OSRM과 티맵을 동시에 짧게 호출한다
+    const osrmPromise = fetch(url, {
+      headers: { 'User-Agent': 'GoldenTime-SafeMap/1.0 (Emergency SafeMap Service)' },
+      signal: AbortSignal.timeout(MATRIX_TIMEOUT_MS),
+    })
+      .then((resp) => (resp.ok ? resp.json() : null))
+      .catch((e) => {
+        console.warn('Matrix fetch warning:', e.message);
+        return null;
       });
-      if (resp.ok) {
-        data = await resp.json();
-      }
-    } catch (e) {
-      console.warn('Matrix fetch warning:', e.message);
-    }
 
-    // 🌟 1순위 타깃(가장 가까운 후보)에 대해 Tmap 실측 거리가 가능하면 조회
-    let nearestTmapDist = null;
-    let nearestTmapDur = null;
-    if (getTmapApiKey() && targets.length > 0) {
-      try {
-        const tmapFirst = await fetchTmapPedestrianRoute(oLat, oLon, targets[0].lat, targets[0].lon, origin.name, targets[0].name);
-        if (tmapFirst && tmapFirst.success) {
-          nearestTmapDist = tmapFirst.distanceMeters;
-          nearestTmapDur = tmapFirst.durationSeconds;
-        }
-      } catch (err) {}
-    }
+    // 🌟 직선거리로 가까운 후보 몇 곳은 티맵 실측 도보 경로로 계산
+    // (큰길·지하철역처럼 건너가려면 멀리 돌아가야 하는 곳을 직선거리로 착각하지 않도록)
+    const tmapPromise = getTmapApiKey()
+      ? Promise.all(
+          targets.slice(0, MATRIX_TMAP_TOP_N).map((t) =>
+            fetchTmapPedestrianRoute(oLat, oLon, t.lat, t.lon, origin.name, t.name, MATRIX_TIMEOUT_MS).catch(() => null)
+          )
+        )
+      : Promise.resolve([]);
+
+    const [data, tmapResults] = await Promise.all([osrmPromise, tmapPromise]);
 
     const results = targets.map((t, idx) => {
       let distMeters = null;
       let durationSec = null;
       let isReal = false;
       const straight = calculateDistanceMeters(oLat, oLon, t.lat, t.lon);
+      const tmap = tmapResults[idx];
 
-      if (idx === 0 && nearestTmapDist !== null) {
-        distMeters = nearestTmapDist;
-        durationSec = nearestTmapDur;
+      if (tmap && tmap.success) {
+        distMeters = tmap.distanceMeters;
+        durationSec = tmap.durationSeconds;
         isReal = true;
       } else if (data && data.code === 'Ok' && data.distances && data.distances[0] && data.distances[0][idx + 1] !== null) {
         const rawDist = Math.round(data.distances[0][idx + 1]);
         const rawDur = Math.round(data.durations[0][idx + 1]);
 
         // 🌟 OSRM 보행 도로망 우회 트랩 방어:
-        // 직선거리 600m 이내인데 도로망 단절/아파트 울타리 OSM 데이터 미비로 2배 이상 우회하는 경우 현실적 도보 거리 보정
+        // 직선거리 600m 이내인데 2배 이상 우회하면 OSM 데이터 미비(아파트 통행로 누락 등)일 수 있어 추정값으로 보정.
+        // 다만 큰길처럼 실제로 돌아가야 하는 경우도 있으므로 실측으로 표시하지 않는다(길안내 시 티맵으로 다시 확인).
         if (straight <= 600 && rawDist > straight * 2.0) {
           distMeters = Math.round(straight * 1.25);
           durationSec = Math.round(distMeters / 1.25);
         } else {
           distMeters = rawDist;
           durationSec = rawDur;
+          isReal = true;
         }
-        isReal = true;
       } else {
         // Fallback: 직선거리 x 1.25 (보행 도로망 우회 계수)
         distMeters = Math.round(straight * 1.25);
