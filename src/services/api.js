@@ -14,7 +14,9 @@ export async function fetchConfig() {
 export async function fetchFacilities(lat, lon, category = 'all', verifiedOnly = true) {
   try {
     const url = `/api/facilities?lat=${lat}&lon=${lon}&category=${category}&verifiedOnly=${verifiedOnly}`;
-    const res = await fetch(url);
+    // 신호가 약해 오래 걸리면 휴대폰에 저장한 자료로 넘어가도록 7초에서 끊는다
+    // (서버가 처음 깨어날 때 4~6초 걸릴 수 있어 그보다 짧게는 잡지 않는다)
+    const res = await fetch(url, { signal: AbortSignal.timeout(7000) });
     if (!res.ok) throw new Error(`HTTP error ${res.status}`);
     return await res.json();
   } catch (err) {

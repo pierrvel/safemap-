@@ -353,6 +353,186 @@ input[type='search']::-webkit-search-cancel-button {
   background: var(--line);
 }
 
+/* 인터넷 없이 쓰기 (안내 창) */
+.sm-offline-lead {
+  margin-top: 6px;
+  font-size: var(--fs-15);
+  line-height: 1.55;
+  color: var(--gray-1);
+}
+
+.sm-offline-list {
+  list-style: none;
+  margin-top: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.sm-offline-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 12px 12px 16px;
+  border-radius: var(--r);
+  background: var(--surface);
+}
+
+.sm-offline-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.sm-offline-body strong {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--fs-17);
+  font-weight: 700;
+}
+
+.sm-offline-here {
+  font-size: var(--fs-13);
+  font-weight: 600;
+  color: var(--user);
+}
+
+.sm-offline-body > span {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--fs-13);
+  color: var(--gray-1);
+}
+
+.sm-offline-remove {
+  flex: none;
+  min-height: 44px;
+  padding: 0 12px;
+  border-radius: 12px;
+  font-size: var(--fs-15);
+  font-weight: 600;
+  color: var(--gray-1);
+}
+
+.sm-offline-remove:active {
+  background: var(--line);
+}
+
+.sm-offline-empty,
+.sm-offline-note {
+  margin-top: 10px;
+  font-size: var(--fs-15);
+  color: var(--gray-1);
+}
+
+.sm-offline-add {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+}
+
+.sm-offline-add select {
+  height: 52px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--paper);
+  font: inherit;
+  font-size: var(--fs-17);
+  color: var(--ink);
+}
+
+.sm-offline-add .sm-btn-sec {
+  height: 52px;
+  padding: 0 18px;
+}
+
+.sm-offline-add .sm-btn-sec:disabled {
+  opacity: 0.5;
+}
+
+/* 지도 없이 길안내할 때의 나침반 */
+.sm-compass {
+  position: absolute;
+  top: calc(var(--safe-top) + 132px);
+  left: 16px;
+  right: 16px;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  pointer-events: none;
+}
+
+.sm-compass-dial {
+  position: relative;
+  width: min(56vw, 220px, 36dvh);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-float);
+  display: grid;
+  place-items: center;
+}
+
+.sm-compass-arrow {
+  width: 62%;
+  height: 62%;
+  color: var(--aed);
+  transition: transform 0.25s var(--ease-out);
+}
+
+.sm-compass-north {
+  position: absolute;
+  inset: 0;
+  transition: transform 0.25s var(--ease-out);
+}
+
+.sm-compass-north span {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: var(--fs-13);
+  font-weight: 700;
+  color: var(--gray-2);
+}
+
+.sm-compass-text {
+  padding: 6px 16px;
+  border-radius: 999px;
+  background: var(--paper);
+  box-shadow: var(--shadow-float);
+  font-size: var(--fs-19);
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.sm-compass-text strong {
+  font-weight: 700;
+}
+
+.sm-compass-hint {
+  max-width: 300px;
+  padding: 4px 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.88);
+  font-size: var(--fs-13);
+  line-height: 1.5;
+  color: var(--gray-1);
+  text-align: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sm-compass-arrow,
+  .sm-compass-north {
+    transition: none;
+  }
+}
+
 /* 검색 후보 목록: 위쪽 바 바로 아래에 떠 있음 (위치 화면에서는 검색창 아래에 그대로) */
 .sm-suggest {
   position: absolute;

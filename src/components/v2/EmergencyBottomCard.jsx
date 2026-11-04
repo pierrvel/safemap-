@@ -263,7 +263,8 @@ export default function EmergencyBottomCard({
         </h2>
         {isOfflineView && (
           <p className="sm-headline-sub">
-            인터넷이 끊겨 마지막 결과를 보여드려요{facility.direction ? ` · ${facility.direction} ${formatDistance(distance)}` : ''}
+            {isOfflineView === 'pack' ? '인터넷 없이 휴대폰에 저장한 자료로 찾았어요' : '인터넷이 끊겨 마지막 결과를 보여드려요'}
+            {facility.direction ? ` · ${facility.direction} ${formatDistance(distance)}` : ''}
           </p>
         )}
       </div>

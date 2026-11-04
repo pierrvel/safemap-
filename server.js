@@ -12,6 +12,8 @@ const { isRegionalConflict } = require('./lib/address');
 const { getRegionInfo, geocodeAddress, geocodeSubLocation } = require('./lib/kakao');
 const { getNearbyShelters } = require('./lib/shelters');
 const { fetchTmapPedestrianRoute, getTmapApiKey } = require('./lib/tmap');
+const { getOfflinePack } = require('./lib/offlinePack');
+const zlib = require('zlib');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -160,6 +162,26 @@ app.get(['/api/config', '/config'], (req, res) => {
     hasGoogleKey: !!googleKey,
     hasDataGoKrKey: !!dataKey,
   });
+});
+
+// 오프라인 자료 API: 시·도 단위 AED·대피소 전체 목록 (휴대폰에 저장해 인터넷 없이 찾기)
+// 수 MB라 압축해서 보내고, CDN에 하루 동안 저장해 공공데이터 호출을 줄인다
+app.get(['/api/offline/:category', '/offline/:category'], async (req, res) => {
+  try {
+    const pack = await getOfflinePack(req.params.category, String(req.query.region || ''));
+    const body = Buffer.from(JSON.stringify(pack));
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, max-age=3600, s-maxage=86400, stale-while-revalidate=604800');
+    res.setHeader('Vary', 'Accept-Encoding');
+    if (/\bgzip\b/.test(req.headers['accept-encoding'] || '')) {
+      res.setHeader('Content-Encoding', 'gzip');
+      return res.end(zlib.gzipSync(body));
+    }
+    return res.end(body);
+  } catch (error) {
+    console.error('Offline pack error:', error.message);
+    res.status(error.status || 502).json({ success: false, message: error.status ? error.message : '오프라인 자료를 만들지 못했어요.' });
+  }
 });
 
 // 사용자 제보·점검 데이터 저장 경로

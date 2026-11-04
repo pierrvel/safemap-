@@ -16,6 +16,9 @@ import Toast from './components/Toast';
 import { useKakaoLoader } from './hooks/useKakaoLoader';
 import { useGeolocation } from './hooks/useGeolocation';
 import { useWakeLock } from './hooks/useWakeLock';
+import useOfflinePacks from './hooks/useOfflinePacks';
+import { findOfflineFacilities } from './utils/offlineSearch';
+import { requestCompassPermission } from './hooks/useCompassHeading';
 import {
   fetchConfig,
   fetchFacilities,
@@ -224,6 +227,7 @@ export default function App() {
 
   const { loaded: isKakaoLoaded, error: kakaoError } = useKakaoLoader(config?.kakaoMapApiKey);
   const { coords, status: geoStatus, hasLocation, requestGps, setManualCoords } = useGeolocation();
+  const offlinePacks = useOfflinePacks({ coords, kakaoReady: isKakaoLoaded, isOnline });
 
   // 시설 수집 → 실제 도보 거리로 상위 후보 정렬 → 답 하나를 정해 한 번만 그린다
   const loadFacilities = useCallback(
@@ -239,12 +243,31 @@ export default function App() {
 
       // 네트워크 장애: 마지막 결과를 현재 위치 기준 거리·방향으로 다시 계산
       if (!res.success) {
-        const offlineList = buildOfflineFacilities(lat, lon, cat);
+        // 1순위: 휴대폰에 저장해 둔 시·도 자료 (처음 가는 곳도 찾을 수 있음)
+        //        단, 마지막으로 찾았던 결과에 같은 시설이 있으면 보정된 좌표를 쓴다
+        // 2순위: 마지막 검색 결과만
+        const cacheList = buildOfflineFacilities(lat, lon, cat);
+        const packList = await findOfflineFacilities(lat, lon, cat).catch(() => null);
+        if (reqId !== lastFacilitiesReqId.current) return;
+        let offlineList = cacheList;
+        if (packList?.length) {
+          const cacheById = new Map((cacheList || []).map((f) => [f.id, f]));
+          offlineList = packList
+            .map((f) => {
+              const c = cacheById.get(f.id);
+              return c
+                ? { ...f, lat: c.lat, lon: c.lon, calibrationType: c.calibrationType, locationConfidence: c.locationConfidence, matchedPlaceName: c.matchedPlaceName, distanceMeters: c.distanceMeters, direction: c.direction }
+                : f;
+            })
+            .sort((a, b) => a.distanceMeters - b.distanceMeters);
+        }
         setFacilities(offlineList || []);
-        setSelectedFacility(offlineList ? pickDefaultFacility(offlineList) : null);
-        setIsOfflineView(!!offlineList);
+        setSelectedFacility(offlineList?.length ? pickDefaultFacility(offlineList) : null);
+        setIsOfflineView(offlineList ? (packList?.length ? 'pack' : 'cache') : false);
         setAnswerReady(true);
-        if (!offlineList) showToast('인터넷 연결을 확인해 주세요. 시설 정보를 불러오지 못했어요.');
+        if (!offlineList) {
+          showToast('인터넷 연결을 확인해 주세요. 이 지역은 휴대폰에 저장한 자료가 없어 찾지 못했어요.');
+        }
         return;
       }
 
@@ -411,6 +434,8 @@ export default function App() {
       return;
     }
     if (!targetFacility) return;
+    // 지도를 못 쓰면 나침반으로 안내하므로, 누르는 순간에 방향 센서 권한을 받는다 (아이폰은 이때만 물을 수 있음)
+    if (!isKakaoLoaded || !isOnline) requestCompassPermission();
     setNavTarget(targetFacility);
     setIsNavigating(true);
 
@@ -600,6 +625,7 @@ export default function App() {
           navData={navData}
           destination={navTarget}
           currentPosition={navPosition || coords}
+          showCompass={!isKakaoLoaded || !isOnline}
           onClose={handleCloseNavigation}
           onOpenCpr={() => setShowCprModal(true)}
           onHeightChange={handleSheetHeight}
@@ -640,6 +666,8 @@ export default function App() {
       <DataSourceModal
         isOpen={showInfoModal}
         onClose={() => setShowInfoModal(false)}
+        offline={offlinePacks}
+        isOnline={isOnline}
         onOpenInstall={
           isStandalone
             ? undefined

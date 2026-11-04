@@ -14,6 +14,7 @@ import {
 import { calculateDistanceMeters } from '../../utils/mapIcons';
 import { formatDistance, placeTitle, placeOwner, getDirectionText } from '../../utils/format';
 import { CallButton, CprButton } from './EmergencyBottomCard';
+import CompassGuide from './CompassGuide';
 
 // 서버가 보내는 안내 기호를 선 아이콘으로 변환
 const STEP_ICONS = {
@@ -85,8 +86,10 @@ export default function NavigationHUD({
   onOpenCpr,
   onHeightChange,
   onArrivedChange,
+  showCompass = false,
 }) {
   const panelRef = useRef(null);
+  const [panelHeight, setPanelHeight] = useState(0);
   const path = useMemo(
     () => (navData?.coordinates || []).filter((pt) => pt && pt.lat !== undefined && pt.lng !== undefined),
     [navData]
@@ -120,7 +123,11 @@ export default function NavigationHUD({
   useLayoutEffect(() => {
     if (!panelRef.current || !onHeightChange) return undefined;
     const el = panelRef.current;
-    const report = () => onHeightChange(el.getBoundingClientRect().height);
+    const report = () => {
+      const h = el.getBoundingClientRect().height;
+      setPanelHeight(h);
+      onHeightChange(h);
+    };
     report();
     const ro = new ResizeObserver(report);
     ro.observe(el);
@@ -240,6 +247,10 @@ export default function NavigationHUD({
             </button>
           )}
         </div>
+      )}
+
+      {showCompass && !hasArrived && currentPosition?.lat && (
+        <CompassGuide from={currentPosition} to={destination} remainingMeters={remainingDist} bottomOffset={panelHeight} />
       )}
 
       <section ref={panelRef} className="sm-sheet" aria-label="길안내">
