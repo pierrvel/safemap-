@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef, lazy, Suspense } from 'react';
 import { RotateCw } from 'lucide-react';
 import './safemap.css';
 
@@ -12,6 +12,9 @@ import PwaInstallModal from './components/v2/PwaInstallModal';
 import DataSourceModal from './components/v2/DataSourceModal';
 import LocationScreen from './components/v2/LocationScreen';
 import Toast from './components/Toast';
+
+// 인터넷이 없을 때만 쓰는 OpenStreetMap 지도 (지도 엔진이 커서 필요할 때만 불러온다)
+const OfflineMapView = lazy(() => import('./components/v2/OfflineMapView'));
 
 import { useKakaoLoader } from './hooks/useKakaoLoader';
 import { useGeolocation } from './hooks/useGeolocation';
@@ -549,10 +552,32 @@ export default function App() {
   const handleSheetHeight = useCallback((h) => setSheetHeight(Math.round(h)), []);
 
   const showLocationScreen = !hasLocation && (geoStatus === 'prompt' || geoStatus === 'denied');
+  const mapUserCoords = (isNavigating && navPosition) || coords;
+  // 카카오 지도를 쓸 수 없을 때(인터넷 없음), 지금 위치의 지도를 저장해 두었으면 오프라인 지도로
+  const offlineMapRegion =
+    !isKakaoLoaded || !isOnline ? offlinePacks.mapRegionFor(mapUserCoords.lat, mapUserCoords.lon) : null;
   const kindText = category === 'aed' ? 'AED' : '대피소';
 
   return (
     <div className="sm-app">
+      {offlineMapRegion ? (
+        <Suspense fallback={null}>
+          <OfflineMapView
+            region={offlineMapRegion}
+            userCoords={mapUserCoords}
+            facilities={facilities}
+            selectedFacility={isNavigating ? navTarget : selectedFacility}
+            onSelectFacility={handleUserSelectFacility}
+            navRouteCoordinates={navData?.coordinates || null}
+            emphasizeAll={sheetCollapsed && !isNavigating}
+            bottomOffset={isWide || showLocationScreen ? 0 : sheetHeight}
+            leftInset={isWide ? 416 : 0}
+            onRequestGps={handleRequestGps}
+            showControls={!showLocationScreen}
+            showBadge={!isNavigating}
+          />
+        </Suspense>
+      ) : (
       <MapView
         isLoaded={isKakaoLoaded}
         unavailableMessage={
@@ -574,6 +599,7 @@ export default function App() {
         onRequestGps={handleRequestGps}
         showControls={!showLocationScreen}
       />
+      )}
 
       {!isNavigating && (
         <HeaderBar
@@ -626,6 +652,7 @@ export default function App() {
           destination={navTarget}
           currentPosition={navPosition || coords}
           showCompass={!isKakaoLoaded || !isOnline}
+          compassCompact={!!offlineMapRegion}
           onClose={handleCloseNavigation}
           onOpenCpr={() => setShowCprModal(true)}
           onHeightChange={handleSheetHeight}

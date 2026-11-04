@@ -1550,3 +1550,86 @@ input[type='search']::-webkit-search-cancel-button {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* 오프라인 지도 (OpenStreetMap): 핀은 버튼, 위쪽에 '저장한 지도' 표시 */
+.sm-offline-pin {
+  display: block;
+  padding: 0;
+  border: 0;
+  background: none;
+  line-height: 0;
+  cursor: pointer;
+}
+
+.sm-offline-pin:focus-visible {
+  outline: 3px solid var(--user);
+  outline-offset: 2px;
+  border-radius: 16px;
+}
+
+.sm-offline-badge {
+  position: absolute;
+  top: calc(var(--safe-top) + 72px);
+  left: 16px;
+  z-index: 5;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--ink);
+  color: var(--paper);
+  font-size: var(--fs-13);
+  font-weight: 600;
+  pointer-events: none;
+}
+
+.sm-map .maplibregl-ctrl-attrib {
+  font-size: 11px;
+}
+
+/* 지도가 있을 때의 작은 나침반: 길안내 카드 아래 오른쪽 */
+.sm-compass.is-compact {
+  top: calc(var(--safe-top) + 140px);
+  left: auto;
+  right: 16px;
+  bottom: auto;
+  gap: 0;
+}
+
+.sm-compass.is-compact .sm-compass-dial {
+  width: 88px;
+}
+
+.sm-compass.is-compact .sm-compass-north span {
+  top: 4px;
+  font-size: 11px;
+}
+
+.sm-offline-map {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin-top: 6px;
+  font-size: var(--fs-13);
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+.sm-offline-mapbtn {
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 10px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  font-size: var(--fs-13);
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.sm-offline-mapbtn:disabled {
+  opacity: 0.5;
+}
+
+.sm-offline-maperr {
+  font-weight: 500;
+  color: var(--aed-text);
+}

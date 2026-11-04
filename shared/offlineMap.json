@@ -1,0 +1,4 @@
+{
+  "baseUrl": "",
+  "note": "오프라인 지도 파일(시·도별 .pmtiles)과 manifest.json이 있는 공개 주소 (Cloudflare R2). 빌드 때 VITE_OFFLINE_MAP_BASE_URL로 덮어쓸 수 있다."
+}

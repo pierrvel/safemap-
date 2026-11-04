@@ -1,5 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { downloadPack, findRegionByName, listSavedRegions, readMeta, removeRegion } from '../utils/offlineStore';
+import {
+  downloadMap as downloadMapFile,
+  fetchMapManifest,
+  findMapRegionFor,
+  isOfflineMapAvailable,
+  readMapMeta,
+  removeMap,
+  warmOfflineMapAssets,
+} from '../utils/offlineMapStore';
 
 const STALE_MS = 7 * 24 * 60 * 60 * 1000;
 // 첫 화면의 답(시설 조회·도보 경로)이 먼저 끝나도록 잠시 뒤에 받는다
@@ -20,6 +29,11 @@ export default function useOfflinePacks({ coords, kakaoReady, isOnline }) {
   const [busyRegion, setBusyRegion] = useState(null);
   const [failedRegion, setFailedRegion] = useState(null);
   const autoTriedRef = useRef(new Set());
+  const [mapMeta, setMapMeta] = useState(readMapMeta);
+  const [mapSizes, setMapSizes] = useState({});
+  const [mapProgress, setMapProgress] = useState(null); // { region, ratio }
+  const [mapFailedRegion, setMapFailedRegion] = useState(null);
+  const mapAvailable = isOfflineMapAvailable();
 
   // 1. 지금 위치의 시·도 (약 1km 단위로만 다시 확인)
   const latKey = coords?.lat ? coords.lat.toFixed(2) : null;
@@ -66,10 +80,57 @@ export default function useOfflinePacks({ coords, kakaoReady, isOnline }) {
     return () => clearTimeout(timer);
   }, [currentRegion, isOnline, download]);
 
-  const remove = useCallback(async (region) => {
-    await removeRegion(region);
-    setMeta(readMeta());
+  // 3. 오프라인 지도: 크기가 커서(지역당 수십 MB) 자동으로 받지 않고 안내 창에서 직접 받는다
+  useEffect(() => {
+    if (!mapAvailable || !isOnline) return;
+    fetchMapManifest().then((m) => {
+      if (!m?.regions) return;
+      setMapSizes(Object.fromEntries(Object.entries(m.regions).map(([k, v]) => [k, v.bytes])));
+    });
+  }, [mapAvailable, isOnline]);
+
+  // 앱이 업데이트된 뒤에도 지도 화면 코드·글꼴이 캐시에 남아 있도록, 지도를 저장한 사람만 온라인일 때 다시 불러 둔다
+  const hasMaps = Object.keys(mapMeta).length > 0;
+  useEffect(() => {
+    if (!hasMaps || !isOnline) return undefined;
+    const timer = setTimeout(() => warmOfflineMapAssets(), AUTO_DELAY_MS * 2);
+    return () => clearTimeout(timer);
+  }, [hasMaps, isOnline]);
+
+  const downloadMap = useCallback(async (region) => {
+    setMapFailedRegion(null);
+    setMapProgress({ region, ratio: 0 });
+    try {
+      await downloadMapFile(region, (ratio) => setMapProgress({ region, ratio }));
+    } catch (e) {
+      setMapFailedRegion(region);
+    } finally {
+      setMapMeta(readMapMeta());
+      setMapProgress(null);
+    }
   }, []);
 
-  return { saved: listSavedRegions(meta), currentRegion, busyRegion, failedRegion, download, remove };
+  const remove = useCallback(async (region) => {
+    await Promise.all([removeRegion(region), removeMap(region)]);
+    setMeta(readMeta());
+    setMapMeta(readMapMeta());
+  }, []);
+
+  const mapRegionFor = useCallback((lat, lon) => findMapRegionFor(lat, lon, mapMeta), [mapMeta]);
+
+  return {
+    saved: listSavedRegions(meta),
+    currentRegion,
+    busyRegion,
+    failedRegion,
+    download,
+    remove,
+    mapAvailable,
+    maps: mapMeta,
+    mapSizes,
+    mapProgress,
+    mapFailedRegion,
+    downloadMap,
+    mapRegionFor,
+  };
 }

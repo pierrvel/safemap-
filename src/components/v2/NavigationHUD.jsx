@@ -87,6 +87,7 @@ export default function NavigationHUD({
   onHeightChange,
   onArrivedChange,
   showCompass = false,
+  compassCompact = false,
 }) {
   const panelRef = useRef(null);
   const [panelHeight, setPanelHeight] = useState(0);
@@ -250,7 +251,7 @@ export default function NavigationHUD({
       )}
 
       {showCompass && !hasArrived && currentPosition?.lat && (
-        <CompassGuide from={currentPosition} to={destination} remainingMeters={remainingDist} bottomOffset={panelHeight} />
+        <CompassGuide from={currentPosition} to={destination} remainingMeters={remainingDist} bottomOffset={panelHeight} compact={compassCompact} />
       )}
 
       <section ref={panelRef} className="sm-sheet" aria-label="길안내">

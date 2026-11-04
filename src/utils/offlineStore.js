@@ -3,7 +3,9 @@
 import REGIONS from '../../shared/offlineRegions.json';
 
 const DB_NAME = 'safemap-offline';
+const DB_VERSION = 2;
 const STORE = 'packs';
+export const MAP_STORE = 'maps';
 const META_KEY = 'safemap_offline_meta_v1';
 
 export { REGIONS };
@@ -21,8 +23,13 @@ function openDb() {
         reject(new Error('IndexedDB를 쓸 수 없어요.'));
         return;
       }
-      const req = indexedDB.open(DB_NAME, 1);
-      req.onupgradeneeded = () => req.result.createObjectStore(STORE, { keyPath: 'key' });
+      const req = indexedDB.open(DB_NAME, DB_VERSION);
+      // v1: 시설 자료(packs), v2: 오프라인 지도 파일(maps)
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: 'key' });
+        if (!db.objectStoreNames.contains(MAP_STORE)) db.createObjectStore(MAP_STORE, { keyPath: 'key' });
+      };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
     }).catch((e) => {
@@ -33,12 +40,12 @@ function openDb() {
   return dbPromise;
 }
 
-function run(mode, fn) {
+export function run(mode, fn, storeName = STORE) {
   return openDb().then(
     (db) =>
       new Promise((resolve, reject) => {
-        const tx = db.transaction(STORE, mode);
-        const req = fn(tx.objectStore(STORE));
+        const tx = db.transaction(storeName, mode);
+        const req = fn(tx.objectStore(storeName));
         tx.oncomplete = () => resolve(req?.result);
         tx.onerror = () => reject(tx.error);
         tx.onabort = () => reject(tx.error);

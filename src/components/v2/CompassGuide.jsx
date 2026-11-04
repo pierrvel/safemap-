@@ -15,7 +15,7 @@ function useContinuousAngle(angle) {
  * - 방향 센서가 있으면 휴대폰을 돌리는 대로 화살표가 목적지를 계속 가리킨다
  * - 센서가 없으면 화면 위쪽을 북쪽으로 두고 방위를 보여준다
  */
-export default function CompassGuide({ from, to, remainingMeters, bottomOffset }) {
+export default function CompassGuide({ from, to, remainingMeters, bottomOffset, compact = false }) {
   const heading = useCompassHeading(true);
   const bearing = getBearing(from.lat, from.lon, to.lat, to.lon);
   const arrowAngle = useContinuousAngle(heading === null ? bearing : bearing - heading);
@@ -23,7 +23,12 @@ export default function CompassGuide({ from, to, remainingMeters, bottomOffset }
   const direction = getDirectionText(from.lat, from.lon, to.lat, to.lon);
 
   return (
-    <div className="sm-compass" style={{ bottom: bottomOffset + 16 }} role="img" aria-label={`${direction} ${formatDistance(remainingMeters)}`}>
+    <div
+      className={`sm-compass${compact ? ' is-compact' : ''}`}
+      style={compact ? undefined : { bottom: bottomOffset + 16 }}
+      role="img"
+      aria-label={`${direction} ${formatDistance(remainingMeters)}`}
+    >
       <div className="sm-compass-dial">
         <span className="sm-compass-north" style={{ transform: `rotate(${northAngle}deg)` }} aria-hidden="true">
           <span>북</span>
@@ -32,10 +37,12 @@ export default function CompassGuide({ from, to, remainingMeters, bottomOffset }
           <path d="M50 8 L78 74 L50 60 L22 74 Z" fill="currentColor" stroke="#FFFFFF" strokeWidth="4" strokeLinejoin="round" />
         </svg>
       </div>
-      <p className="sm-compass-text">
-        <strong>{direction}</strong> · {formatDistance(remainingMeters)}
-      </p>
-      <p className="sm-compass-hint">
+      {!compact && (
+        <p className="sm-compass-text">
+          <strong>{direction}</strong> · {formatDistance(remainingMeters)}
+        </p>
+      )}
+      <p className="sm-compass-hint" hidden={compact}>
         {heading === null ? '화면 위쪽이 북쪽이에요. 방향을 맞춰 걸어가세요.' : '휴대폰을 평평하게 들고 화살표 쪽으로 걸어가세요.'}
       </p>
     </div>

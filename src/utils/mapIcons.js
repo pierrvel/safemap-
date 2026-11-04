@@ -12,6 +12,31 @@ export function calculateDistanceMeters(lat1, lon1, lat2, lon2) {
   return Math.round(R * c);
 }
 
+// 20m 이내 동일 건물/초근접 겹침 시설 그룹화 (카카오 지도·오프라인 지도 공용)
+export function groupOverlappingFacilities(list) {
+  const clusters = [];
+  const visited = new Set();
+
+  list.forEach((item) => {
+    if (visited.has(item.id)) return;
+    const group = [item];
+    visited.add(item.id);
+
+    list.forEach((other) => {
+      if (visited.has(other.id)) return;
+      const d = calculateDistanceMeters(item.lat, item.lon, other.lat, other.lon);
+      if (d <= 20) {
+        group.push(other);
+        visited.add(other.id);
+      }
+    });
+
+    clusters.push(group);
+  });
+
+  return clusters;
+}
+
 // 디자인 토큰 (src/safemap.css 와 같은 값)
 const AED_RED = '#E5304A';
 const AED_RED_SOFT = '#F3A6B0';
@@ -42,7 +67,8 @@ function glyph(category, fg, bg, scale) {
   return `<g transform="${t}"><path d="${HEART_PATH}" fill="${fg}"/><path d="${BOLT_PATH}" fill="${bg}"/></g>`;
 }
 
-export function createCustomPinIcon(item, isNearest, isSelected, emphasize = false) {
+// 핀 그림(SVG 문자열)만 만든다: 카카오 지도와 오프라인 지도(MapLibre)가 같은 모양을 쓴다
+export function pinSvg(item, isNearest, isSelected, emphasize = false) {
   const isShelter = item.category === 'shelter';
   const strong = isSelected || isNearest;
   const vivid = strong || emphasize;
@@ -62,10 +88,15 @@ export function createCustomPinIcon(item, isNearest, isSelected, emphasize = fal
     </svg>` : ''}
   </svg>`.trim();
 
+  return { svg, size };
+}
+
+export function createCustomPinIcon(item, isNearest, isSelected, emphasize = false) {
+  const { svg, size } = pinSvg(item, isNearest, isSelected, emphasize);
   return toMarkerImage(svg, size, { x: size / 2, y: size / 2 });
 }
 
-export function createClusterPinIcon(cluster, isNearest, emphasize = false) {
+export function clusterSvg(cluster, isNearest, emphasize = false) {
   const count = cluster.length;
   const isShelter = cluster.every((f) => f.category === 'shelter');
   const vivid = isNearest || emphasize;
@@ -81,10 +112,15 @@ export function createClusterPinIcon(cluster, isNearest, emphasize = false) {
     <text x="${size / 2}" y="${size / 2 + (emphasize ? 5 : 4.5)}" font-size="${emphasize ? 15 : 13}" font-weight="700" fill="#FFFFFF" text-anchor="middle" font-family="Pretendard, -apple-system, sans-serif">${count}</text>
   </svg>`.trim();
 
+  return { svg, size };
+}
+
+export function createClusterPinIcon(cluster, isNearest, emphasize = false) {
+  const { svg, size } = clusterSvg(cluster, isNearest, emphasize);
   return toMarkerImage(svg, size, { x: size / 2, y: size / 2 });
 }
 
-export function createUserLocationIcon() {
+export function userLocationSvg() {
   const size = 48;
   const svg = `
   <svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 48 48">
@@ -93,6 +129,11 @@ export function createUserLocationIcon() {
     <circle cx="24" cy="24" r="10" fill="${USER_BLUE}" stroke="#FFFFFF" stroke-width="4"/>
   </svg>`.trim();
 
+  return { svg, size };
+}
+
+export function createUserLocationIcon() {
+  const { svg, size } = userLocationSvg();
   return toMarkerImage(svg, size, { x: size / 2, y: size / 2 });
 }
 

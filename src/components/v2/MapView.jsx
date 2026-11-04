@@ -5,36 +5,13 @@ import {
   createClusterPinIcon,
   createUserLocationIcon,
   calculateSpiderPositions,
+  groupOverlappingFacilities,
   calculateDistanceMeters,
 } from '../../utils/mapIcons';
 
 const ROUTE_RED = '#E5304A';
 const ROUTE_RED_SOFT = '#F0828F';
 
-// 20m 이내 동일 건물/초근접 겹침 시설 그룹화
-function groupOverlappingFacilities(list) {
-  const clusters = [];
-  const visited = new Set();
-
-  list.forEach((item) => {
-    if (visited.has(item.id)) return;
-    const group = [item];
-    visited.add(item.id);
-
-    list.forEach((other) => {
-      if (visited.has(other.id)) return;
-      const d = calculateDistanceMeters(item.lat, item.lon, other.lat, other.lon);
-      if (d <= 20) {
-        group.push(other);
-        visited.add(other.id);
-      }
-    });
-
-    clusters.push(group);
-  });
-
-  return clusters;
-}
 
 // 서버·폴백이 주는 여러 좌표 형식을 카카오 LatLng 배열로 변환
 function toLatLngPath(coordinates) {

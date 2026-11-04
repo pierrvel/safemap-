@@ -84,6 +84,7 @@
 - **다른 지역 저장**: 안내(ⓘ) 창의 "인터넷 없이 쓰기"에서 16개 시·도 중 골라 저장하거나 지울 수 있습니다(광주·전남은 통합 지역 하나).
 - **오프라인 찾기**: 인터넷이 끊기면 저장한 자료에서 반경 5km 안의 가까운 곳을 찾고, "인터넷 없이 휴대폰에 저장한 자료로 찾았어요 · 남쪽 80m"처럼 방향과 거리를 함께 보여줍니다. 마지막으로 찾았던 결과에 같은 시설이 있으면 보정된 좌표를 쓰고, 없으면 공공데이터 원래 좌표를 씁니다.
 - **운영시간 판정**: 저장한 운영시간으로 휴대폰에서 '지금 이용 가능'을 계산합니다(서버와 같은 규칙, 공휴일 내장 목록 포함 — `test/offlineParity.test.js`로 확인).
+- **오프라인 지도 (OpenStreetMap)**: 카카오 지도는 약관상 저장할 수 없어, 인터넷이 없을 때는 휴대폰에 저장한 OpenStreetMap 지도(세이프맵 회색 톤)로 바꿔 보여줍니다. 지역당 9~125MB라 자동으로 받지 않고 안내 창에서 "지도도 저장하기"로 받습니다. 길·건물·지하철역이 보이고, 같은 핀·내 위치·직선 경로와 작은 나침반으로 안내합니다. 지도 파일은 Cloudflare R2에 두며 `shared/offlineMap.json`의 `baseUrl`이 비어 있으면 이 기능은 숨겨집니다.
 - **나침반 길안내**: 지도가 뜨지 않으면 휴대폰 방향 센서로 목적지를 가리키는 큰 화살표와 남은 거리를 보여줍니다. 센서가 없으면 화면 위쪽을 북쪽으로 두고 방위를 보여줍니다(아이폰은 안내 시작을 누를 때 센서 권한을 묻습니다).
 - **앱 실행**: 첫 방문 때 앱 코드까지 저장해 바로 다음부터 인터넷 없이 열립니다. 신호가 약해 응답이 오지 않으면 화면은 3초, 시설 정보는 7초에서 끊고 저장본으로 넘어갑니다.
 - **항상 동작**: `119` 전화와 CPR 도우미는 인터넷이 필요 없습니다.
@@ -177,7 +178,19 @@ npm test
 ```
 운영시간 판정(야간·공휴일), 주소 비교, 시·도 검증, 거리 계산, 대피소 반경 탐색 등 핵심 로직을 검증합니다.
 
-### 5. 서버 코드 구조
+### 5. 오프라인 지도 파일 만들기 (선택)
+1. [go-pmtiles](https://github.com/protomaps/go-pmtiles)로 Protomaps 일일 빌드에서 시·도별로 잘라냅니다.
+   ```bash
+   pmtiles extract https://build.protomaps.com/20261103.pmtiles maps/seoul.pmtiles --bbox=126.778,37.428,127.197,37.707
+   ```
+2. 목록을 만들고 Cloudflare R2에 올립니다(`.env`에 `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`).
+   ```bash
+   node scripts/offline-maps.mjs manifest maps 20261103 maps/bbox.json
+   node scripts/offline-maps.mjs upload maps
+   ```
+3. `shared/offlineMap.json`의 `baseUrl`에 버킷 공개 주소를 넣고 배포합니다.
+
+### 6. 서버 코드 구조
 | 파일 | 역할 |
 |---|---|
 | `server.js` | Express 앱, API 라우트(시설 조회·경로·제보) |
@@ -192,7 +205,7 @@ npm test
 | `lib/offlinePack.js` | 시·도별 오프라인 자료(AED 전체 목록·대피소) 생성 (`/api/offline/:category?region=`) |
 | `shared/offlineRegions.json` | 시·도 목록과 옛 이름 별칭 (서버·화면 공용) |
 
-### 6. 화면 코드 구조
+### 7. 화면 코드 구조
 | 파일 | 역할 |
 |---|---|
 | `src/App.jsx` | 위치·시설 조회, 답 고르기(1.5초 대기·열린 AED 우선), 오프라인 저장·복원, 길안내 상태 |
@@ -209,3 +222,6 @@ npm test
 | `src/utils/offlineStore.js`, `src/hooks/useOfflinePacks.js` | 오프라인 자료 저장(IndexedDB)·자동 내려받기 |
 | `src/utils/offlineSearch.js`, `src/utils/operatingHours.js` | 저장 자료로 가까운 곳 찾기·운영시간 판정 |
 | `src/components/v2/CompassGuide.jsx` | 지도 없이 길안내하는 나침반 |
+| `src/components/v2/OfflineMapView.jsx`, `src/utils/offlineMapStore.js` | 오프라인 지도(MapLibre + PMTiles) 화면·저장 |
+| `scripts/offline-maps.mjs` | 시·도별 지도 파일 목록 만들기·R2 올리기 |
+| `public/map-assets/` | 오프라인 지도 글꼴·아이콘 (Protomaps basemaps-assets) |

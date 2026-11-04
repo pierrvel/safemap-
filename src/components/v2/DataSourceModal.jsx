@@ -1,6 +1,33 @@
 import React, { useEffect, useState } from 'react';
 import { REGIONS } from '../../utils/offlineStore';
 
+const mb = (bytes) => `${Math.max(1, Math.round(bytes / 1048576))}MB`;
+
+// 저장한 지역의 오프라인 지도 상태: 저장됨 / 받는 중 / 받기 버튼
+function MapLine({ offline, region, isOnline }) {
+  const { mapAvailable, maps, mapSizes, mapProgress, mapFailedRegion, downloadMap } = offline;
+  if (!mapAvailable) return null;
+  const saved = maps[region];
+  if (saved) return <span className="sm-offline-map">지도 {mb(saved.bytes)} 저장됨</span>;
+  if (mapProgress?.region === region) {
+    return (
+      <span className="sm-offline-map" role="status">
+        지도 받는 중 {Math.round(mapProgress.ratio * 100)}%
+      </span>
+    );
+  }
+  const size = mapSizes[region];
+  if (!size) return null;
+  return (
+    <span className="sm-offline-map">
+      <button type="button" className="sm-offline-mapbtn" onClick={() => downloadMap(region)} disabled={!isOnline || !!mapProgress}>
+        지도도 저장하기 ({mb(size)})
+      </button>
+      {mapFailedRegion === region && <span className="sm-offline-maperr">받지 못했어요. 다시 눌러 주세요.</span>}
+    </span>
+  );
+}
+
 const savedDate = (iso) => {
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? '' : `${d.getMonth() + 1}월 ${d.getDate()}일 저장`;
@@ -20,6 +47,7 @@ function OfflineSection({ offline, isOnline }) {
       <h3>인터넷 없이 쓰기</h3>
       <p className="sm-offline-lead">
         저장한 지역은 인터넷이 끊겨도 가까운 AED와 대피소를 찾을 수 있어요. 지금 있는 지역은 자동으로 저장해요.
+        {offline.mapAvailable && ' 지도까지 저장하면 인터넷이 없어도 길이 보이는 지도로 안내해요(와이파이에서 받기를 권해요).'}
       </p>
 
       {saved.length > 0 ? (
@@ -42,6 +70,7 @@ function OfflineSection({ offline, isOnline }) {
                         .filter(Boolean)
                         .join(' · ')}
                 </span>
+                <MapLine offline={offline} region={r.region} isOnline={isOnline} />
               </span>
               <button type="button" className="sm-offline-remove" onClick={() => remove(r.region)} disabled={busyRegion === r.region}>
                 지우기
