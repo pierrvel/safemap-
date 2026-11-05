@@ -100,8 +100,13 @@ async function upload(dir) {
     if (!process.env[name]) throw new Error(`.env에 ${name}가 없어요.`);
   }
   const manifest = JSON.parse(readFileSync(path.join(dir, 'manifest.json'), 'utf8'));
-  await putCors();
-  console.log('CORS 설정 완료:', APP_ORIGINS.join(', '));
+  // 객체 읽기·쓰기 전용 키는 버킷 설정(CORS)을 바꿀 수 없다 → 그때는 대시보드에서 설정한다
+  try {
+    await putCors();
+    console.log('CORS 설정 완료:', APP_ORIGINS.join(', '));
+  } catch (e) {
+    console.warn(`${e.message}\n→ Cloudflare 대시보드의 버킷 Settings > CORS Policy에서 직접 설정하세요.`);
+  }
   for (const [region, entry] of Object.entries(manifest.regions)) {
     const t0 = Date.now();
     // 파일 이름에 날짜가 있어 내용이 바뀌지 않으므로 오래 캐시해도 된다

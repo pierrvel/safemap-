@@ -188,7 +188,8 @@ npm test
    node scripts/offline-maps.mjs manifest maps 20261103 maps/bbox.json
    node scripts/offline-maps.mjs upload maps
    ```
-3. `shared/offlineMap.json`의 `baseUrl`에 버킷 공개 주소를 넣고 배포합니다.
+   - 객체 읽기·쓰기 전용 키로는 CORS를 바꿀 수 없으니, 버킷 Settings > CORS Policy에서 세이프맵 주소의 `GET`·`HEAD`를 허용해 둡니다.
+3. `shared/offlineMap.json`의 `baseUrl`에 버킷 공개 주소를 넣고 배포합니다. (현재: `pub-47659c4600d34457b81f4257fa366160.r2.dev`, 2026-11-03 빌드 16개 시·도)
 
 ### 6. 서버 코드 구조
 | 파일 | 역할 |
