@@ -91,8 +91,8 @@ app.get('/assets/:file', (req, res, next) => {
   const assetsDir = path.join(staticDir, 'assets');
   if (fs.existsSync(assetsDir)) {
     const files = fs.readdirSync(assetsDir);
-    if (fileName.endsWith('.js')) {
-      const activeJs = files.find(f => f.startsWith('index-') && f.endsWith('.js'));
+    if (fileName.endsWith('.js') || fileName.endsWith('.mjs')) {
+      const activeJs = files.find(f => f.startsWith('index-') && f.endsWith('.mjs'));
       if (activeJs) {
         res.setHeader('Content-Type', 'application/javascript');
         return res.sendFile(path.join(assetsDir, activeJs));
