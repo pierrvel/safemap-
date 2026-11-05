@@ -62,28 +62,47 @@ export async function warmOfflineMapAssets() {
   ]);
 }
 
+// 파일 하나를 받아 조각(Uint8Array) 목록으로 돌려준다. onBytes(이번에 받은 바이트 수)
+async function fetchChunks(url, onBytes) {
+  const res = await fetch(url);
+  if (!res.ok || !res.body) throw new Error(`지도 파일 응답 ${res.status}`);
+  const reader = res.body.getReader();
+  const chunks = [];
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) return chunks;
+    chunks.push(value);
+    onBytes(value.length);
+  }
+}
+
 /**
  * 시·도 지도 파일을 내려받아 저장. onProgress(0~1)
+ * - 큰 지역은 GitHub 파일 크기 제한 때문에 조각(parts)으로 나뉘어 있어, 두 개씩 받아 순서대로 합친다
  */
 export async function downloadMap(region, onProgress) {
   const manifest = await fetchMapManifest();
   const entry = manifest?.regions?.[region];
   if (!entry) throw new Error('이 지역 지도 파일을 찾지 못했어요.');
 
-  const res = await fetch(`${MAP_BASE_URL}/${entry.file}`);
-  if (!res.ok || !res.body) throw new Error(`지도 파일 응답 ${res.status}`);
-  const total = Number(res.headers.get('Content-Length')) || entry.bytes || 0;
-  const reader = res.body.getReader();
-  const chunks = [];
+  const files = entry.parts || [entry.file];
+  const total = entry.bytes || 0;
   let received = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    chunks.push(value);
-    received += value.length;
+  const onBytes = (n) => {
+    received += n;
     if (total) onProgress?.(Math.min(1, received / total));
-  }
-  const blob = new Blob(chunks, { type: 'application/octet-stream' });
+  };
+  const results = new Array(files.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < files.length) {
+      const i = next++;
+      results[i] = await fetchChunks(`${MAP_BASE_URL}/${files[i]}`, onBytes);
+    }
+  };
+  await Promise.all([worker(), worker()]);
+  const blob = new Blob(results.flat(), { type: 'application/octet-stream' });
+  if (total && blob.size !== total) throw new Error('지도 파일을 끝까지 받지 못했어요.');
   await run('readwrite', (store) => store.put({ key: region, blob, file: entry.file }), MAP_STORE);
 
   const meta = readMapMeta();

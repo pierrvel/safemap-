@@ -1,4 +1,4 @@
 {
-  "baseUrl": "https://pub-47659c4600d34457b81f4257fa366160.r2.dev",
-  "note": "오프라인 지도 파일(시·도별 .pmtiles)과 manifest.json이 있는 공개 주소 (Cloudflare R2). 빌드 때 VITE_OFFLINE_MAP_BASE_URL로 덮어쓸 수 있다."
+  "baseUrl": "https://pierrvel.github.io/safemap-maps",
+  "note": "오프라인 지도 파일(시·도별 .pmtiles, 큰 지역은 .partN 조각)과 manifest.json이 있는 공개 주소 (GitHub Pages: pierrvel/safemap-maps). 빌드 때 VITE_OFFLINE_MAP_BASE_URL로 덮어쓸 수 있다."
 }
