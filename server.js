@@ -22,6 +22,7 @@ const PORT = process.env.PORT || 3000;
 const isAllowedOrigin = (origin) => {
   if (!origin) return true;
   if (
+    origin === 'https://shsafemap.vercel.app' ||
     origin === 'https://prompt-bismuth-avyohx5.vercel.app' ||
     origin.endsWith('.vercel.app') ||
     /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)

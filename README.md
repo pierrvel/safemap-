@@ -4,7 +4,7 @@
 > 심정지처럼 분초를 다투는 상황에서 당황한 목격자가 한 손으로 보고 바로 움직일 수 있도록 만들었습니다. 민방위 대피소도 같은 방식으로 찾을 수 있습니다.
 
 ### 🌐 공식 웹 서비스 바로가기
-👉 **[https://prompt-bismuth-avyohx5.vercel.app](https://prompt-bismuth-avyohx5.vercel.app)**
+👉 **[https://shsafemap.vercel.app](https://shsafemap.vercel.app)**
 
 - 제품 원칙과 대상 사용자: [PRODUCT.md](PRODUCT.md)
 - 디자인 시스템(색·글자·컴포넌트 규칙): [DESIGN.md](DESIGN.md)
