@@ -13,6 +13,8 @@ const STATIC_ASSETS = [
 // 신호가 약해 응답이 오지 않을 때 끝없이 기다리지 않도록 상한을 둔다 (응급 상황에서는 저장본이 낫다)
 const NAV_TIMEOUT_MS = 3000;
 const API_TIMEOUT_MS = 8000;
+// 시설 목록은 화면이 7초에 저장한 자료로 먼저 답하고 서버 답을 더 기다리므로, 여기서 일찍 끊지 않는다
+const FACILITIES_TIMEOUT_MS = 25000;
 function fetchWithTimeout(request, ms) {
   return Promise.race([
     fetch(request),
@@ -63,7 +65,7 @@ self.addEventListener('fetch', (event) => {
 
   if (url.pathname.startsWith('/api/')) {
     event.respondWith(
-      fetchWithTimeout(event.request, API_TIMEOUT_MS)
+      fetchWithTimeout(event.request, url.pathname === '/api/facilities' ? FACILITIES_TIMEOUT_MS : API_TIMEOUT_MS)
         .then((response) => {
           if (event.request.method === 'GET' && response && response.ok) {
             const clone = response.clone();

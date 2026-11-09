@@ -39,6 +39,9 @@ const ENABLE_FIELD_AUDIT = false;
 const REAL_ROUTE_TOP_N = 10;
 // 실제 도보 거리 계산을 기다리는 최대 시간: 이후에는 추정값으로 먼저 답하고, 답을 바꾸지 않는다
 const ANSWER_WAIT_MS = 1500;
+// 서버가 처음 깨어나며 주변 자료를 모으면 5~9초 걸릴 수 있어, 7초에 저장한 자료로 먼저 답하고 25초까지 기다린다
+const FACILITIES_WAIT_MS = 7000;
+const FACILITIES_GIVE_UP_MS = 25000;
 const OFFLINE_CACHE_MAX_METERS = 10000;
 const OFF_ROUTE_METERS = 50;
 const OFF_ROUTE_GRACE_MS = 5000;
@@ -246,8 +249,15 @@ export default function App() {
       setAnswerReady(false);
       setPreviewRoute(null);
 
-      const res = await fetchFacilities(lat, lon, cat, false);
+      // 신호가 약하거나 서버가 처음 깨어나 늦으면 7초에 휴대폰에 저장한 자료로 먼저 답하고,
+      // 서버 답은 계속 기다렸다가 오면 그걸로 바꾼다 (경로 미리보기도 그때 그린다)
+      const onlinePromise = fetchFacilities(lat, lon, cat, false, FACILITIES_GIVE_UP_MS);
+      const firstAnswer = await Promise.race([
+        onlinePromise,
+        new Promise((resolve) => setTimeout(() => resolve('timeout'), FACILITIES_WAIT_MS)),
+      ]);
       if (reqId !== lastFacilitiesReqId.current) return;
+      const res = firstAnswer === 'timeout' ? { success: false } : firstAnswer;
 
       // 네트워크 장애: 마지막 결과를 현재 위치 기준 거리·방향으로 다시 계산
       if (!res.success) {
@@ -273,10 +283,30 @@ export default function App() {
         setSelectedFacility(offlineList?.length ? pickDefaultFacility(offlineList) : null);
         setIsOfflineView(offlineList ? (packList?.length ? 'pack' : 'cache') : false);
         setAnswerReady(true);
-        if (!offlineList) {
-          showToast('인터넷 연결을 확인해 주세요. 이 지역은 휴대폰에 저장한 자료가 없어 찾지 못했어요.');
+        if (firstAnswer !== 'timeout') {
+          if (!offlineList) {
+            showToast('인터넷 연결을 확인해 주세요. 이 지역은 휴대폰에 저장한 자료가 없어 찾지 못했어요.');
+          }
+          return;
         }
-        return;
+        const late = await onlinePromise;
+        if (reqId !== lastFacilitiesReqId.current) return;
+        if (!late.success) {
+          if (!offlineList) {
+            showToast('인터넷 연결을 확인해 주세요. 이 지역은 휴대폰에 저장한 자료가 없어 찾지 못했어요.');
+          }
+          return;
+        }
+        // 늦게 온 서버 답: 사용자가 이미 다른 곳을 골랐으면 목록과 숫자만 바꾸고 선택은 그대로 둔다
+        if (userPickedFacilityRef.current) {
+          const lateList = late.facilities || [];
+          setFacilities(lateList);
+          setIsOfflineView(false);
+          setSelectedFacility((prev) => lateList.find((f) => f.id === prev?.id) || prev);
+          saveOfflineCache(cat, { coords: { lat, lon }, category: cat, facilities: lateList, timestamp: Date.now() });
+          return;
+        }
+        Object.assign(res, late);
       }
 
       const list = res.facilities || [];
