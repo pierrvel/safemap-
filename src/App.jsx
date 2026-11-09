@@ -44,6 +44,11 @@ const OFF_ROUTE_METERS = 50;
 const OFF_ROUTE_GRACE_MS = 5000;
 const WIDE_QUERY = '(min-width: 900px)';
 
+// 길찾기 목적지: 서버가 건물 입구를 찾을 수 있도록 기관·장소 이름도 함께 보낸다
+function routeTarget(f) {
+  return { lat: f.lat, lon: f.lon, name: f.org || f.name };
+}
+
 function getDistanceMeters(lat1, lon1, lat2, lon2) {
   if (!lat1 || !lon1 || !lat2 || !lon2) return Infinity;
   const R = 6371000;
@@ -288,7 +293,7 @@ export default function App() {
 
       const matrixPromise = fetchRouteMatrix(
         { lat, lon },
-        list.slice(0, REAL_ROUTE_TOP_N).map((f) => ({ id: f.id, lat: f.lat, lon: f.lon }))
+        list.slice(0, REAL_ROUTE_TOP_N).map((f) => ({ id: f.id, ...routeTarget(f) }))
       ).then((m) => (m.success && m.results?.length ? mergeRouteResults(list, m.results) : null));
 
       const first = await Promise.race([
@@ -376,7 +381,7 @@ export default function App() {
     if (cached) {
       show(cached);
     } else {
-      fetchPedestrianDirections({ lat: coords.lat, lon: coords.lon }, { lat: fac.lat, lon: fac.lon }).then((res) => {
+      fetchPedestrianDirections({ lat: coords.lat, lon: coords.lon }, routeTarget(fac)).then((res) => {
         if (!res.success || !res.coordinates?.length) return;
         routeCacheRef.current.set(key, res);
         show(res);
@@ -444,7 +449,7 @@ export default function App() {
 
     const res = await fetchPedestrianDirections(
       { lat: coords.lat, lon: coords.lon },
-      { lat: targetFacility.lat, lon: targetFacility.lon }
+      routeTarget(targetFacility)
     );
     if (res.success) {
       setNavData(res);
@@ -520,7 +525,7 @@ export default function App() {
 
     fetchPedestrianDirections(
       { lat: navPosition.lat, lon: navPosition.lon },
-      { lat: navTarget.lat, lon: navTarget.lon }
+      routeTarget(navTarget)
     ).then((res) => {
       isReroutingRef.current = false;
       if (navTargetIdRef.current !== targetId) return;

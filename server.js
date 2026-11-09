@@ -11,7 +11,7 @@ const { mapWithConcurrency } = require('./lib/utils');
 const { isRegionalConflict } = require('./lib/address');
 const { getRegionInfo, geocodeAddress, geocodeSubLocation } = require('./lib/kakao');
 const { getNearbyShelters } = require('./lib/shelters');
-const { fetchTmapPedestrianRoute, getTmapApiKey } = require('./lib/tmap');
+const { fetchTmapRouteToFacility, getTmapApiKey } = require('./lib/tmap');
 const { getOfflinePack } = require('./lib/offlinePack');
 const zlib = require('zlib');
 
@@ -648,7 +648,7 @@ app.post(['/api/routes/matrix', '/routes/matrix'], async (req, res) => {
     const tmapPromise = getTmapApiKey()
       ? Promise.all(
           targets.slice(0, MATRIX_TMAP_TOP_N).map((t) =>
-            fetchTmapPedestrianRoute(oLat, oLon, t.lat, t.lon, origin.name, t.name, MATRIX_TIMEOUT_MS).catch(() => null)
+            fetchTmapRouteToFacility(oLat, oLon, t, origin.name, MATRIX_TIMEOUT_MS).catch(() => null)
           )
         )
       : Promise.resolve([]);
@@ -722,7 +722,7 @@ app.post(['/api/routes/directions', '/routes/directions'], async (req, res) => {
 
     // 🌟 1순위: Tmap (SK Open API) 보행자 경로 안내 (국내 보행로/아파트단지/골목/횡단보도 정밀 반영)
     if (getTmapApiKey()) {
-      const tmapRoute = await fetchTmapPedestrianRoute(oLat, oLon, dLat, dLon, origin.name, destination.name);
+      const tmapRoute = await fetchTmapRouteToFacility(oLat, oLon, destination, origin.name);
       if (tmapRoute && tmapRoute.success) {
         return res.json(tmapRoute);
       }
