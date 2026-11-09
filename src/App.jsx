@@ -47,9 +47,19 @@ const OFF_ROUTE_METERS = 50;
 const OFF_ROUTE_GRACE_MS = 5000;
 const WIDE_QUERY = '(min-width: 900px)';
 
-// 길찾기 목적지: 서버가 건물 입구를 찾을 수 있도록 기관·장소 이름도 함께 보낸다
+// 길찾기 목적지: 서버가 건물 입구를 찾을 수 있도록 이름 후보도 함께 보낸다
+// (주소 끝 괄호의 건물 이름 → 기관명 → 시설 이름 순. 대피소의 "행정안전부 민방위" 같은 관리 기관명은 건물 이름이 아니라 뺀다)
+const GENERIC_ORG = /행정안전부|민방위/;
+const DONG_NAME = /^[가-힣0-9]+(동|가|리|읍|면)$/;
 function routeTarget(f) {
-  return { lat: f.lat, lon: f.lon, name: f.org || f.name };
+  const addr = f.buildAddress || f.address || '';
+  const building = (addr.match(/\(([^)]*)\)\s*$/)?.[1] || '')
+    .split(',')
+    .map((s) => s.trim())
+    .find((s) => s.length >= 2 && !DONG_NAME.test(s));
+  const org = f.org && !GENERIC_ORG.test(f.org) ? f.org : null;
+  const names = [...new Set([building, org, f.name].filter(Boolean))];
+  return { lat: f.lat, lon: f.lon, name: names[0], names };
 }
 
 function getDistanceMeters(lat1, lon1, lat2, lon2) {
