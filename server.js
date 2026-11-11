@@ -16,6 +16,15 @@ const { getOfflinePack } = require('./lib/offlinePack');
 const zlib = require('zlib');
 
 const app = express();
+
+// 옛 주소로 들어오면 새 주소로 영구 이동 (홈 화면에 옛 주소로 추가한 앱도 새 주소로 열린다)
+const OLD_HOSTS = new Set(['prompt-bismuth-avyohx5.vercel.app', 'temporary-prompt-bismuth-avyohx5.vercel.app']);
+const CANONICAL_ORIGIN = 'https://shsafemap.vercel.app';
+app.use((req, res, next) => {
+  const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim().toLowerCase();
+  if (OLD_HOSTS.has(host)) return res.redirect(308, CANONICAL_ORIGIN + req.originalUrl);
+  next();
+});
 const PORT = process.env.PORT || 3000;
 
 // CORS 허용 도메인 설정 (Vercel 배포 도메인 및 로컬 개발 환경 포트 허용)
