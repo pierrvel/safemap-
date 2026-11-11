@@ -18,6 +18,14 @@
       ]
     }
   ],
+  "redirects": [
+    {
+      "source": "/:path*",
+      "has": [{ "type": "host", "value": "prompt-bismuth-avyohx5.vercel.app" }],
+      "destination": "https://shsafemap.vercel.app/:path*",
+      "permanent": true
+    }
+  ],
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/index.js" }
   ]
