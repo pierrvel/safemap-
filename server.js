@@ -234,14 +234,20 @@ async function fetchAEDData(lat, lon) {
   const url = `https://apis.data.go.kr/B552657/AEDInfoInqireService/getAedLcinfoInqire?serviceKey=${serviceKey}&WGS84_LON=${lon}&WGS84_LAT=${lat}&numOfRows=50&_type=json`;
   
   const response = await fetch(url, {
-    headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
+    headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
+    signal: AbortSignal.timeout(6000),
   });
 
   if (!response.ok) {
     throw new Error(`API Response Status: ${response.status}`);
   }
 
+  // 키 오류·호출 한도 초과는 200에 XML이나 오류 코드로 오므로 "AED 없음"으로 착각하지 않게 구분한다
   const data = await response.json();
+  const resultCode = data?.response?.header?.resultCode;
+  if (resultCode && resultCode !== '00') {
+    throw new Error(`API result ${resultCode} ${data?.response?.header?.resultMsg || ''}`);
+  }
   const items = data?.response?.body?.items?.item || [];
   return Array.isArray(items) ? items : [items];
 }
@@ -304,6 +310,7 @@ app.get(['/api/facilities', '/facilities'], async (req, res) => {
     };
 
     let allFacilities = [];
+    let aedSourceFailed = false;
 
     // 사용자 현재/검색 위치 기준 광역 행정구역 정보 (시·도 / 시·군·구) 조회
     const centerRegion = await getRegionInfo(lat, lon);
@@ -465,7 +472,13 @@ app.get(['/api/facilities', '/facilities'], async (req, res) => {
         }
       } catch (err) {
         console.error('AED API Fetch Error:', err.message);
+        aedSourceFailed = true;
       }
+    }
+
+    // AED 자료를 못 받았으면 "근처에 AED 없음"으로 답하지 않는다 → 앱이 휴대폰에 저장한 자료로 찾는다
+    if (aedSourceFailed && categoryFilter === 'aed') {
+      return res.status(502).json({ success: false, aedSourceFailed: true, message: 'AED 자료를 불러오지 못했어요.' });
     }
 
     // 2. 민방위 대피소 데이터 수집 (행정안전부_민방위대피시설 조회서비스 기반)
@@ -500,17 +513,15 @@ app.get(['/api/facilities', '/facilities'], async (req, res) => {
     stats.finalUsableCount = allFacilities.length;
 
     // 🌟 [8] 위경도 격자 캐시 저장 (메모리 누수 방지 위해 최대 200개 제한)
-    facilityGridCache.set(gridKey, {
-      timestamp: Date.now(),
-      facilities: allFacilities,
-      stats,
-      backup24h,
-    });
-    if (facilityGridCache.size > 200) {
-      const now = Date.now();
-      for (const [k, v] of facilityGridCache.entries()) {
-        if (now - v.timestamp > FACILITY_CACHE_TTL_MS) facilityGridCache.delete(k);
-      }
+    if (!aedSourceFailed) {
+      facilityGridCache.set(gridKey, {
+        timestamp: Date.now(),
+        facilities: allFacilities,
+        stats,
+        backup24h,
+      });
+      // Map은 넣은 순서를 기억하므로 앞에서부터 지우면 가장 오래된 항목부터 빠진다
+      while (facilityGridCache.size > 200) facilityGridCache.delete(facilityGridCache.keys().next().value);
     }
 
     res.json({
@@ -527,14 +538,21 @@ app.get(['/api/facilities', '/facilities'], async (req, res) => {
   }
 });
 
+// 현장 점검·제보는 공식 서비스 전이라 꺼 둔다 (화면에서도 숨김, ENABLE_FIELD_AUDIT=true일 때만 열림)
+const FIELD_AUDIT_ENABLED = process.env.ENABLE_FIELD_AUDIT === 'true';
+app.use(['/api/checkin', '/api/checkins', '/api/reports', '/api/report', '/checkin', '/checkins', '/reports', '/report'], (req, res, next) =>
+  FIELD_AUDIT_ENABLED ? next() : res.status(404).json({ success: false, message: '준비 중인 기능이에요.' })
+);
+const isSafeId = (id) => typeof id === 'string' && id.length <= 80 && !['__proto__', 'constructor', 'prototype'].includes(id);
+
 // 원터치 시설 상태 확인 (Micro Check-in) API (공식 서비스 준비 중)
 app.post(['/api/checkin', '/checkin'], (req, res) => {
   const { facilityId, status, note } = req.body;
-  if (!facilityId || !status) {
+  if (!isSafeId(facilityId) || !status) {
     return res.status(400).json({ success: false, message: '시설 ID와 상태가 필요합니다.' });
   }
 
-  const prev = facilityCheckins[facilityId] || { normalCount: 0, issueCount: 0 };
+  const prev = (Object.hasOwn(facilityCheckins, facilityId) && facilityCheckins[facilityId]) || { normalCount: 0, issueCount: 0 };
   const cleanNote = String(note || '').slice(0, 300); // 300자 입력 제한
   if (status === 'NORMAL') {
     prev.normalCount = (prev.normalCount || 0) + 1;
@@ -570,15 +588,15 @@ app.post(['/api/reports', '/api/report', '/reports', '/report'], (req, res) => {
   const reportType = req.body.reportType || req.body.issueType || 'ISSUE';
   const details = String(req.body.details || req.body.description || '').slice(0, 300); // 300자 입력 제한
 
-  if (!facilityId) {
+  if (!isSafeId(facilityId)) {
     return res.status(400).json({ success: false, message: '필수 입력 항목(facilityId)이 누락되었습니다.' });
   }
 
   const newReport = {
     reportId: `REP-${Date.now()}`,
     facilityId,
-    facilityName: facilityName || '안전시설',
-    reportType, // 'MISSING' (장비 없음), 'DAMAGED' (고장/파손), 'LOCATION_DIFF' (위치 불일치), 'EXPIRED' (노후 경과)
+    facilityName: String(facilityName || '안전시설').slice(0, 100),
+    reportType: String(reportType).slice(0, 30), // 'MISSING' (장비 없음), 'DAMAGED' (고장/파손), 'LOCATION_DIFF' (위치 불일치), 'EXPIRED' (노후 경과)
     details: details || '',
     createdAt: new Date().toISOString(),
   };
@@ -615,6 +633,10 @@ app.get(['/api/reports', '/reports'], (req, res) => {
 // 도보 실거리 매트릭스 및 실시간 인앱 길안내 API
 // ==========================================================
 
+// 국내 좌표인지 (잘못된 값·해외 좌표로 유료 길찾기 API를 부르지 않도록)
+const isKoreaCoord = (lat, lon) => Number.isFinite(lat) && Number.isFinite(lon) && lat >= 33 && lat <= 39 && lon >= 124 && lon <= 132;
+const ROUTE_MAX_METERS = 20000;
+
 // 다중 시설 도보 실거리 계산 API (Table Matrix)
 const MATRIX_TIMEOUT_MS = 1300;
 const MATRIX_TMAP_TOP_N = 3;
@@ -629,7 +651,15 @@ app.post(['/api/routes/matrix', '/routes/matrix'], async (req, res) => {
     const oLon = parseFloat(origin.lon);
 
     // 최대 25개 대상 처리 (OSRM 제한 준수)
-    const targets = destinations.slice(0, 25);
+    if (!isKoreaCoord(oLat, oLon)) {
+      return res.status(400).json({ success: false, message: '국내 좌표만 계산할 수 있어요.' });
+    }
+    // 앱은 가까운 10곳만 보낸다. 출발지에서 너무 먼 곳은 빼고 계산한다
+    const targets = destinations
+      .slice(0, 10)
+      .map((t) => ({ ...t, lat: parseFloat(t?.lat), lon: parseFloat(t?.lon) }))
+      .filter((t) => isKoreaCoord(t.lat, t.lon) && calculateDistanceMeters(oLat, oLon, t.lat, t.lon) <= ROUTE_MAX_METERS);
+    if (targets.length === 0) return res.json({ success: true, results: [] });
     const coordsStr = `${oLon},${oLat};` + targets.map(t => `${t.lon},${t.lat}`).join(';');
     const url = `https://routing.openstreetmap.de/routed-foot/table/v1/driving/${coordsStr}?sources=0&annotations=distance,duration`;
 
@@ -720,6 +750,9 @@ app.post(['/api/routes/directions', '/routes/directions'], async (req, res) => {
     const oLon = parseFloat(origin.lon);
     const dLat = parseFloat(destination.lat);
     const dLon = parseFloat(destination.lon);
+    if (!isKoreaCoord(oLat, oLon) || !isKoreaCoord(dLat, dLon) || calculateDistanceMeters(oLat, oLon, dLat, dLon) > ROUTE_MAX_METERS) {
+      return res.status(400).json({ success: false, message: '국내에서 20km 안의 길만 찾을 수 있어요.' });
+    }
 
     // 🌟 1순위: Tmap (SK Open API) 보행자 경로 안내 (국내 보행로/아파트단지/골목/횡단보도 정밀 반영)
     if (getTmapApiKey()) {

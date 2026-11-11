@@ -51,8 +51,11 @@ export function placeOwner(facility) {
   return facility.org && facility.org !== '관리기관 미상' ? facility.org : facility.buildAddress || '';
 }
 
-// 확실히 열린 AED가 미확인·닫힌 AED보다 도보 2분 이내로만 더 멀면 열린 AED를 기본 답으로
+// 확실히 열린 AED가 미확인 AED보다 도보 2분 이내로만 더 멀면 열린 AED를 기본 답으로
 const OPEN_PREFERENCE_SECONDS = 120;
+// 가장 가까운 AED가 닫혀 있어도, 열린 AED가 10분 넘게 더 걸리면 가까운 쪽을 답으로 둔다
+// (닫힘 판정은 주말 운영시간 미기재처럼 자료가 비어 생기기도 해서, 아주 먼 곳으로 보내지 않는다. 열린 곳은 카드에 대안으로 함께 보여준다)
+const CLOSED_DETOUR_MAX_SECONDS = 600;
 
 export function pickDefaultFacility(list) {
   if (!list?.length) return null;
@@ -60,8 +63,9 @@ export function pickDefaultFacility(list) {
   if (nearest.category !== 'aed' || nearest.availableNow === true) return nearest;
   const open = list.find((f) => f.category === 'aed' && f.availableNow === true);
   if (!open) return nearest;
-  if (nearest.availableNow === false) return open;
-  return walkSeconds(open) - walkSeconds(nearest) <= OPEN_PREFERENCE_SECONDS ? open : nearest;
+  const extra = walkSeconds(open) - walkSeconds(nearest);
+  if (nearest.availableNow === false) return extra <= CLOSED_DETOUR_MAX_SECONDS ? open : nearest;
+  return extra <= OPEN_PREFERENCE_SECONDS ? open : nearest;
 }
 
 // 두 좌표 간 방위각(북쪽 0°, 시계 방향) — 오프라인으로 지도가 없을 때 나침반·방향 안내용

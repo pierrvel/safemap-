@@ -1,5 +1,5 @@
 // 세이프맵 PWA 서비스 워커
-const CACHE_NAME = 'safemap-pwa-v5';
+const CACHE_NAME = 'safemap-pwa-v6';
 const STATIC_ASSETS = [
   '/',
   '/manifest.json',
@@ -58,22 +58,16 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
-  // API 요청은 항상 최신 실시간 데이터 네트워크 우선 조회
-  // 성공한 GET 응답은 캐시에 보관하여 네트워크 장애 시 마지막 결과로 폴백
-  // 오프라인 자료(수 MB)는 화면이 IndexedDB에 따로 저장하므로 여기서는 저장하지 않는다
+  // API는 항상 네트워크로만 조회하고 저장하지 않는다
+  // (예전 응답을 지금 응답처럼 보여주면 "지금 이용 가능" 같은 운영 여부가 틀릴 수 있다.
+  //  인터넷이 없을 때는 화면이 휴대폰에 저장한 시·도 자료로 따로 찾는다)
   if (url.pathname.startsWith('/api/offline/')) return;
 
   if (url.pathname.startsWith('/api/')) {
     event.respondWith(
-      fetchWithTimeout(event.request, url.pathname === '/api/facilities' ? FACILITIES_TIMEOUT_MS : API_TIMEOUT_MS)
-        .then((response) => {
-          if (event.request.method === 'GET' && response && response.ok) {
-            const clone = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
-          }
-          return response;
-        })
-        .catch(async () => (await caches.match(event.request)) || Response.error())
+      fetchWithTimeout(event.request, url.pathname === '/api/facilities' ? FACILITIES_TIMEOUT_MS : API_TIMEOUT_MS).catch(() =>
+        Response.error()
+      )
     );
     return;
   }
@@ -83,8 +77,11 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       fetchWithTimeout(event.request, NAV_TIMEOUT_MS)
         .then((response) => {
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+          // 배포 중 잠깐 나는 오류 페이지로 저장해 둔 앱 화면을 덮어쓰지 않는다
+          if (response.ok) {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put('/', clone));
+          }
           return response;
         })
         // 저장본이 없으면(첫 방문) 느려도 네트워크를 끝까지 기다린다
